@@ -8,12 +8,13 @@ import zmq
 from gello.cameras.camera import CameraDriver
 
 DEFAULT_CAMERA_PORT = 5000
+DEFAULT_CAMERA_IP = "192.168.1.110"
 
 
 class ZMQClientCamera(CameraDriver):
     """A class representing a ZMQ client for a leader robot."""
 
-    def __init__(self, port: int = DEFAULT_CAMERA_PORT, host: str = "127.0.0.1"):
+    def __init__(self, port: int = DEFAULT_CAMERA_PORT, host: str = DEFAULT_CAMERA_IP):
         self._context = zmq.Context()
         self._socket = self._context.socket(zmq.REQ)
         self._socket.connect(f"tcp://{host}:{port}")
@@ -39,7 +40,7 @@ class ZMQServerCamera:
         self,
         camera: CameraDriver,
         port: int = DEFAULT_CAMERA_PORT,
-        host: str = "127.0.0.1",
+        host: str = DEFAULT_CAMERA_IP,
     ):
         self._camera = camera
         self._context = zmq.Context()
