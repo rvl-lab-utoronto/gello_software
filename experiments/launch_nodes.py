@@ -12,7 +12,10 @@ class Args:
     robot: str = "xarm"
     robot_port: int = 6001
     hostname: str = "127.0.0.1"
-    robot_ip: str = "192.168.1.10"
+    robot_ip: str = "127.0.0.1"
+    gripper_ip: str = "127.0.0.1"
+    gripper_client_port: int = 5002
+    robot_client_port: int = 5001
 
 
 def launch_robot_server(args: Args):
@@ -24,13 +27,13 @@ def launch_robot_server(args: Args):
         xml = MENAGERIE_ROOT / "universal_robots_ur5e" / "ur5e.xml"
         gripper_xml = MENAGERIE_ROOT / "robotiq_2f85" / "2f85.xml"
         from gello.robots.sim_robot import MujocoRobotServer
-
         server = MujocoRobotServer(
             xml_path=xml, gripper_xml_path=gripper_xml, port=port, host=args.hostname
         )
         server.serve()
     elif args.robot == "sim_panda":
         from gello.robots.sim_robot import MujocoRobotServer
+        print(f"starting sim panda server at host {args.hostname}, and port {port}")
 
         MENAGERIE_ROOT: Path = (
             Path(__file__).parent.parent / "third_party" / "mujoco_menagerie"
@@ -66,7 +69,10 @@ def launch_robot_server(args: Args):
         elif args.robot == "panda":
             from gello.robots.panda import PandaRobot
 
-            robot = PandaRobot(robot_ip=args.robot_ip)
+            robot = PandaRobot(robot_ip=args.robot_ip,
+                               gripper_ip=args.gripper_ip,
+                               robot_client_port=args.robot_client_port, 
+                               gripper_client_port=args.gripper_client_port)
         elif args.robot == "bimanual_ur":
             from gello.robots.ur import URRobot
 
