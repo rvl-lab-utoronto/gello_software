@@ -11,14 +11,16 @@ MAX_OPEN = 0.09
 class PandaRobot(Robot):
     """A class representing a UR robot."""
 
-    def __init__(self, robot_ip: str = "100.97.47.74"):
+    def __init__(self, robot_ip: str = "192.168.1.7", gripper_ip: str = "192.168.1.7", robot_client_port = 5002, gripper_client_port = 5001):
         from polymetis import GripperInterface, RobotInterface
 
         self.robot = RobotInterface(
             ip_address=robot_ip,
+            port=robot_client_port
         )
         self.gripper = GripperInterface(
-            ip_address="localhost",
+            ip_address=gripper_ip,
+            port=gripper_client_port
         )
         self.robot.go_home()
         self.robot.start_joint_impedance()

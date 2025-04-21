@@ -24,6 +24,12 @@ class Args:
     gripper: bool = True
     """Whether or not the gripper is attached."""
 
+    baudrate: int = 115200
+    """Baud rate set for the dynamixel servos"""
+
+    joint_ids: Tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6, 7)
+    """IDs of the dynamixel servos"""    
+
     def __post_init__(self):
         assert len(self.joint_signs) == len(self.start_joints)
         for idx, j in enumerate(self.joint_signs):
@@ -42,8 +48,8 @@ class Args:
 
 
 def get_config(args: Args) -> None:
-    joint_ids = list(range(1, args.num_joints + 1))
-    driver = DynamixelDriver(joint_ids, port=args.port, baudrate=57600)
+    joint_ids = list(args.joint_ids)
+    driver = DynamixelDriver(joint_ids, port=args.port, baudrate=args.baudrate)
 
     # assume that the joint state shouold be args.start_joints
     # find the offset, which is a multiple of np.pi/2 that minimizes the error between the current joint state and args.start_joints
