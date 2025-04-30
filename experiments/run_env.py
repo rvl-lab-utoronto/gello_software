@@ -23,18 +23,19 @@ def print_color(*args, color=None, attrs=(), **kwargs):
         args = tuple(termcolor.colored(arg, color=color, attrs=attrs) for arg in args)
     print(*args, **kwargs)
 
-DEFAULT_CAMERA_CLIENT_HOST = "192.168.1.110"
-DEFAULT_ROBOT_CLIENT_HOST = "192.168.1.111"
+
+
 @dataclass
 class Args:
     agent: str = "none"
     robot_port: int = 50051
-    wrist_camera_port: int = 5001
-    base_camera_port: int = 5002
-    hostname: str = "127.0.0.1"
+    wrist_camera_port: int = 5000
+    base_camera_port: int = 5001
+    gello_server_hostname: str = "127.0.0.1"
     robot_type: str = "None"  # only needed for quest agent or spacemouse agent
     hz: int = 500
     start_joints: Optional[Tuple[float, ...]] = None
+    has_camera: Optional[bool] = False
 
     gello_port: Optional[str] = None
     mock: bool = False
@@ -49,17 +50,12 @@ def main(args):
         robot_client = PrintRobot(8, dont_print=True)
         camera_clients = {}
     else:
-        # camera_clients = {"base": ZMQClientCamera(host=DEFAULT_CAMERA_CLIENT_HOST, port=args.base_camera_port),
-        #                   "wrist": ZMQClientCamera(host=DEFAULT_CAMERA_CLIENT_HOST, port=args.wrist_camera_port)
-            # you can optionally add camera nodes here for imitation learning purposes
-            # "wrist": ZMQClientCamera(port=args.wrist_camera_port, host=args.hostname),
-            # "base": ZMQClientCamera(port=args.base_camera_port, host=args.hostname),
-        # }
-        
-        camera_clients = {"base": ZMQClientCamera(host=DEFAULT_CAMERA_CLIENT_HOST, port=args.base_camera_port),
-                          "wrist": ZMQClientCamera(host=DEFAULT_CAMERA_CLIENT_HOST, port=args.wrist_camera_port)}
-        robot_client = ZMQClientRobot(port=args.robot_port, host=args.hostname)
-        # robot_client = ZMQClientRobot(host=DEFAULT_ROBOT_CLIENT_HOST, port=50051)
+        camera_clients = {}
+        if args.has_camera:
+            camera_clients = {"base": ZMQClientCamera(host=args.gello_server_hostname, port=args.base_camera_port),
+                            "wrist": ZMQClientCamera(host=args.gello_server_hostname, port=args.wrist_camera_port)}
+        robot_client = ZMQClientRobot(port=args.robot_port, host=args.gello_server_hostname)
+
         
     env = RobotEnv(robot_client, control_rate_hz=args.hz, camera_dict=camera_clients)
 
@@ -161,25 +157,25 @@ def main(args):
     abs_deltas = np.abs(start_pos - joints)
     id_max_joint_delta = np.argmax(abs_deltas)
 
-    max_joint_delta = 0.8
-    alpha = 0.1
-    if abs_deltas[id_max_joint_delta] > max_joint_delta:
-        id_mask = abs_deltas > max_joint_delta
-        print()
-        ids = np.arange(len(id_mask))[id_mask]
-        for i, delta, joint, current_j in zip(
-            ids,
-            abs_deltas[id_mask],
-            start_pos[id_mask],
-            joints[id_mask],
-        ):
-            delta = alpha * delta
-            print(
-                f"joint[{i}]: \t delta: {delta:4.3f} , leader: \t{joint:4.3f} , follower: \t{current_j:4.3f}"
-            )
-        print("returning!!")
+    # max_joint_delta = 0.8
+    # alpha = 0.1
+    # if abs_deltas[id_max_joint_delta] > max_joint_delta:
+    #     id_mask = abs_deltas > max_joint_delta
+    #     print()
+    #     ids = np.arange(len(id_mask))[id_mask]
+    #     for i, delta, joint, current_j in zip(
+    #         ids,
+    #         abs_deltas[id_mask],
+    #         start_pos[id_mask],
+    #         joints[id_mask],
+    #     ):
+    #         delta = alpha * delta
+    #         print(
+    #             f"joint[{i}]: \t delta: {delta:4.3f} , leader: \t{joint:4.3f} , follower: \t{current_j:4.3f}"
+    #         )
+    #     print("returning!!")
         
-        #return
+    #     #return
 
     print(f"Start pos: {len(start_pos)}", f"Joints: {len(joints)}")
     assert len(start_pos) == len(
@@ -188,18 +184,15 @@ def main(args):
 
     max_delta = 0.2
     while True:
-        print("going close to initial valuue")
+        print("moving robot closer to initial gello joint positions")
         obs = env.get_obs()
         command_joints = agent.act(obs)
         current_joints = obs["joint_positions"]
-        # print(obs["base_rgb"].shape)
         delta = (command_joints - current_joints)
         max_joint_delta = np.abs(delta[:-1]).max()
         if max_joint_delta > max_delta:
-            print(max_joint_delta)
             delta[:-1] = delta[:-1] / max_joint_delta * max_delta
         env.step(current_joints + delta)
-        print(command_joints - current_joints, np.linalg.norm(command_joints[:-1] - current_joints[:-1]))
         if np.linalg.norm(command_joints[:-1] - current_joints[:-1]) < 0.1:
             break
             
@@ -259,7 +252,7 @@ def main(args):
                 save_path = None
             else:
                 raise ValueError(f"Invalid state {state}")
-        # action[-2] += 0.785
+        action[-2] += 0.785
         # print(action, obs)
         # action = alpha * action 
         delta = action - obs["joint_positions"]
