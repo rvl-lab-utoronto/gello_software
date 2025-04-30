@@ -99,6 +99,7 @@ class DynamixelRobot(Robot):
             if gripper_config is not None:
                 new_joint_offsets.append(self._joint_offsets[-1])
             self._joint_offsets = np.array(new_joint_offsets)
+        print(f"Connected connect to port: {port} successfully")            
 
     def num_dofs(self) -> int:
         return len(self._joint_ids)
