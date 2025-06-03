@@ -11,14 +11,16 @@ MAX_OPEN = 0.09
 class PandaRobot(Robot):
     """A class representing a UR robot."""
 
-    def __init__(self, robot_ip: str = "100.97.47.74"):
+    def __init__(self, robot_ip: str = "192.168.1.107"):
         from polymetis import GripperInterface, RobotInterface
 
         self.robot = RobotInterface(
-            ip_address=robot_ip,
+            ip_address="192.168.1.111",
+            port=5002
         )
         self.gripper = GripperInterface(
-            ip_address="localhost",
+            ip_address="192.168.1.111",
+            port=5001
         )
         self.robot.go_home()
         self.robot.start_joint_impedance()
@@ -53,7 +55,7 @@ class PandaRobot(Robot):
         import torch
 
         self.robot.update_desired_joint_positions(torch.tensor(joint_state[:-1]))
-        self.gripper.goto(width=(MAX_OPEN * (1 - joint_state[-1])), speed=1, force=1)
+        self.gripper.goto(width=(MAX_OPEN * (1 - joint_state[-1])), speed=0.2, force=20)
 
     def get_observations(self) -> Dict[str, np.ndarray]:
         joints = self.get_joint_state()

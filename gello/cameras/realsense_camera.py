@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from gello.cameras.camera import CameraDriver
-
+import cv2
 
 def get_device_ids() -> List[str]:
     import pyrealsense2 as rs

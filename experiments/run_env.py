@@ -14,7 +14,7 @@ from gello.data_utils.format_obs import save_frame
 from gello.env import RobotEnv
 from gello.robots.robot import PrintRobot
 from gello.zmq_core.robot_node import ZMQClientRobot
-
+from gello.zmq_core.camera_node import ZMQClientCamera
 
 def print_color(*args, color=None, attrs=(), **kwargs):
     import termcolor
@@ -23,6 +23,7 @@ def print_color(*args, color=None, attrs=(), **kwargs):
         args = tuple(termcolor.colored(arg, color=color, attrs=attrs) for arg in args)
     print(*args, **kwargs)
 
+DEFAULT_CAMERA_CLIENT_HOST = "192.168.1.165"
 
 @dataclass
 class Args:
@@ -48,12 +49,16 @@ def main(args):
         robot_client = PrintRobot(8, dont_print=True)
         camera_clients = {}
     else:
-        camera_clients = {
-            # you can optionally add camera nodes here for imitation learning purposes
-            # "wrist": ZMQClientCamera(port=args.wrist_camera_port, host=args.hostname),
-            # "base": ZMQClientCamera(port=args.base_camera_port, host=args.hostname),
-        }
-        robot_client = ZMQClientRobot(port=args.robot_port, host=args.hostname)
+        # camera_clients = {"wrist": ZMQClientCamera(host=DEFAULT_CAMERA_CLIENT_HOST)
+        #     # you can optionally add camera nodes here for imitation learning purposes
+        #     # "wrist": ZMQClientCamera(port=args.wrist_camera_port, host=args.hostname),
+        #     # "base": ZMQClientCamera(port=args.base_camera_port, host=args.hostname),
+        # }
+        camera_clients = {}
+        # robot_client = ZMQClientRobot(port=args.robot_port, host=args.hostname)
+        robot_client = ZMQClientRobot(host="127.0.0.1", port=6001)
+        print("calling client")
+        
     env = RobotEnv(robot_client, control_rate_hz=args.hz, camera_dict=camera_clients)
 
     if args.bimanual:
@@ -155,6 +160,7 @@ def main(args):
     id_max_joint_delta = np.argmax(abs_deltas)
 
     max_joint_delta = 0.8
+    alpha = 0.1
     if abs_deltas[id_max_joint_delta] > max_joint_delta:
         id_mask = abs_deltas > max_joint_delta
         print()
@@ -165,27 +171,35 @@ def main(args):
             start_pos[id_mask],
             joints[id_mask],
         ):
+            delta = alpha * delta
             print(
                 f"joint[{i}]: \t delta: {delta:4.3f} , leader: \t{joint:4.3f} , follower: \t{current_j:4.3f}"
             )
-        return
+        print("returning!!")
+        
+        #return
 
     print(f"Start pos: {len(start_pos)}", f"Joints: {len(joints)}")
     assert len(start_pos) == len(
         joints
     ), f"agent output dim = {len(start_pos)}, but env dim = {len(joints)}"
 
-    max_delta = 0.05
-    for _ in range(25):
+    max_delta = 0.2
+    while True:
+        print("going close to initial valuue")
         obs = env.get_obs()
         command_joints = agent.act(obs)
         current_joints = obs["joint_positions"]
-        delta = command_joints - current_joints
-        max_joint_delta = np.abs(delta).max()
+        delta = (command_joints - current_joints)
+        max_joint_delta = np.abs(delta[:-1]).max()
         if max_joint_delta > max_delta:
-            delta = delta / max_joint_delta * max_delta
+            print(max_joint_delta)
+            delta[:-1] = delta[:-1] / max_joint_delta * max_delta
         env.step(current_joints + delta)
-
+        print(command_joints - current_joints, np.linalg.norm(command_joints[:-1] - current_joints[:-1]))
+        if np.linalg.norm(command_joints[:-1] - current_joints[:-1]) < 0.1:
+            break
+            
     obs = env.get_obs()
     joints = obs["joint_positions"]
     action = agent.act(obs)
@@ -198,7 +212,9 @@ def main(args):
             print(
                 f"Joint [{j}], leader: {action[j]}, follower: {joints[j]}, diff: {action[j] - joints[j]}"
             )
-        exit()
+        print("exiitng!!")
+        action[joint_index] *= alpha**2
+        exit()    
 
     if args.use_save_interface:
         from gello.data_utils.keyboard_interface import KBReset
@@ -239,6 +255,17 @@ def main(args):
                 save_path = None
             else:
                 raise ValueError(f"Invalid state {state}")
+        action[-2] += 0.785
+        # print(action, obs)
+        # action = alpha * action 
+        delta = action - obs["joint_positions"]
+        max_joint_delta = np.abs(delta[:-1]).max()
+        if max_joint_delta > max_delta:
+            print(max_joint_delta)
+            delta[:-1] = delta[:-1] / max_joint_delta * max_delta
+        
+        action = obs["joint_positions"] + delta
+        
         obs = env.step(action)
 
 

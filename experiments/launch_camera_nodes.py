@@ -6,11 +6,11 @@ import tyro
 from gello.cameras.realsense_camera import RealSenseCamera, get_device_ids
 from gello.zmq_core.camera_node import ZMQServerCamera
 
-
+DEFAULT_CAMERA_PORT = 5000
 @dataclass
 class Args:
     # hostname: str = "127.0.0.1"
-    hostname: str = "128.32.175.167"
+    hostname: str = "192.168.1.165"
 
 
 def launch_server(port: int, camera_id: int, args: Args):
@@ -22,7 +22,7 @@ def launch_server(port: int, camera_id: int, args: Args):
 
 def main(args):
     ids = get_device_ids()
-    camera_port = 5000
+    camera_port = DEFAULT_CAMERA_PORT
     camera_servers = []
     for camera_id in ids:
         # start a python process for each camera

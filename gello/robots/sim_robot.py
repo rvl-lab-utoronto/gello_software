@@ -140,25 +140,27 @@ class MujocoRobotServer:
         print_joints: bool = False,
     ):
         self._has_gripper = gripper_xml_path is not None
-        arena = build_scene(xml_path, gripper_xml_path)
+        # arena = build_scene(xml_path, gripper_xml_path)
 
-        assets: Dict[str, str] = {}
-        for asset in arena.asset.all_children():
-            if asset.tag == "mesh":
-                f = asset.file
-                assets[f.get_vfs_filename()] = asset.file.contents
+        # assets: Dict[str, str] = {}
+        # for asset in arena.asset.all_children():
+        #     if asset.tag == "mesh":
+        #         f = asset.file
+        #         assets[f.get_vfs_filename()] = asset.file.contents
 
-        xml_string = arena.to_xml_string()
-        # save xml_string to file
-        with open("arena.xml", "w") as f:
-            f.write(xml_string)
+        # xml_string = arena.to_xml_string()
+        # # save xml_string to file
+        # with open("arena.xml", "w") as f:
+        #     f.write(xml_string)
 
-        self._model = mujoco.MjModel.from_xml_string(xml_string, assets)
+        # self._model = mujoco.MjModel.from_xml_string(xml_string, assets)
+        self._model = mujoco.MjModel.from_xml_path(str(xml_path))
         self._data = mujoco.MjData(self._model)
 
         self._num_joints = self._model.nu
 
-        self._joint_state = np.zeros(self._num_joints)
+        # self._joint_state = np.zeros(self._num_joints)
+        self._joint_state = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self._joint_cmd = self._joint_state
 
         self._zmq_server = ZMQRobotServer(robot=self, host=host, port=port)
@@ -178,12 +180,16 @@ class MujocoRobotServer:
             f"got {len(joint_state)}."
         )
         if self._has_gripper:
+            # print("yes gripper")
             _joint_state = joint_state.copy()
             _joint_state[-1] = _joint_state[-1] * 255
             self._joint_cmd = _joint_state
         else:
-            self._joint_cmd = joint_state.copy()
-
+            # print("no gripper")
+            # self._joint_cmd = joint_state.copy()
+            _joint_state = joint_state.copy()
+            _joint_state[-1] = _joint_state[-1] * 255
+            self._joint_cmd = _joint_state
     def freedrive_enabled(self) -> bool:
         return True
 
@@ -219,6 +225,10 @@ class MujocoRobotServer:
         # start the zmq server
         self._zmq_server_thread.start()
         with mujoco.viewer.launch_passive(self._model, self._data) as viewer:
+            # viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+            # cam_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_CAMERA, 'default_view')
+            # viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+            # viewer.cam.fixedcamid = cam_id
             while viewer.is_running():
                 step_start = time.time()
 
