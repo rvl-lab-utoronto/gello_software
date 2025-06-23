@@ -112,6 +112,10 @@ class ZMQRobotServer:
                     result = self._robot.command_joint_state(**args)
                 elif method == "get_observations":
                     result = self._robot.get_observations()
+                elif method == "get_camera_names":
+                    result = self._robot.get_camera_names()
+                elif method == "render_camera":
+                    result = self._robot.render_camera(**args)
                 else:
                     result = {"error": "Invalid method"}
                     print(result)
@@ -140,26 +144,10 @@ class MujocoRobotServer:
         print_joints: bool = False,
     ):
         self._has_gripper = gripper_xml_path is not None
-        # arena = build_scene(xml_path, gripper_xml_path)
-
-        # assets: Dict[str, str] = {}
-        # for asset in arena.asset.all_children():
-        #     if asset.tag == "mesh":
-        #         f = asset.file
-        #         assets[f.get_vfs_filename()] = asset.file.contents
-
-        # xml_string = arena.to_xml_string()
-        # # save xml_string to file
-        # with open("arena.xml", "w") as f:
-        #     f.write(xml_string)
-
-        # self._model = mujoco.MjModel.from_xml_string(xml_string, assets)
         self._model = mujoco.MjModel.from_xml_path(str(xml_path))
         self._data = mujoco.MjData(self._model)
 
         self._num_joints = self._model.nu
-
-        # self._joint_state = np.zeros(self._num_joints)
         self._joint_state = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self._joint_cmd = self._joint_state
 
@@ -167,6 +155,12 @@ class MujocoRobotServer:
         self._zmq_server_thread = ZMQServerThread(self._zmq_server)
 
         self._print_joints = print_joints
+
+        # Add thread lock for camera rendering
+        self._render_lock = threading.Lock()
+
+        # Initialize renderer for camera functionality and pre-allocate to avoid issues
+        self._renderer = mujoco.Renderer(self._model, height=128, width=128)
 
     def num_dofs(self) -> int:
         return self._num_joints
@@ -220,6 +214,65 @@ class MujocoRobotServer:
             "ee_pos_quat": np.concatenate([ee_pos, ee_quat]),
             "gripper_position": gripper_pos,
         }
+    
+    def get_camera_names(self) -> list:
+        """Get list of available camera names."""
+        camera_names = []
+        for i in range(self._model.ncam):
+            try:
+                cam_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_CAMERA, i)
+                if cam_name:
+                    camera_names.append(cam_name)
+                else:
+                    camera_names.append(f"camera_{i}")  # fallback name
+            except Exception as e:
+                print(f"Error getting camera {i} name: {e}")
+                camera_names.append(f"camera_{i}")  # fallback name
+        return camera_names
+
+    def render_camera(self, camera_name: str, width: int = 128, height: int = 128) -> np.ndarray:
+        """Render image from specified camera."""
+        try:
+            # Initialize renderer if not already done
+            if self._renderer is None or self._renderer.width != width or self._renderer.height != height:
+                if self._renderer is not None:
+                    self._renderer.close()
+                self._renderer = mujoco.Renderer(self._model, height=height, width=width)
+            
+            # Get camera ID
+            try:
+                cam_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_CAMERA, camera_name)
+                if cam_id < 0:
+                    raise ValueError(f"Camera '{camera_name}' not found")
+            except:
+                try:
+                    cam_id = int(camera_name.split('_')[-1]) if 'camera_' in camera_name else int(camera_name)
+                    if cam_id >= self._model.ncam:
+                        raise ValueError(f"Camera index {cam_id} out of range")
+                except:
+                    print(f"Error: Invalid camera name '{camera_name}'")
+                    return np.zeros((height, width, 3), dtype=np.uint8)
+            
+            # CRITICAL FIX: Create a separate data copy for rendering to avoid conflicts
+            with threading.Lock():  # Thread safety
+                data_copy = mujoco.MjData(self._model)
+                data_copy.qpos[:] = self._data.qpos[:]
+                data_copy.qvel[:] = self._data.qvel[:]
+                data_copy.ctrl[:] = self._data.ctrl[:]
+                data_copy.time = self._data.time
+                
+                # Forward the copied data
+                mujoco.mj_forward(self._model, data_copy)
+                
+                # Render using the copied data
+                self._renderer.update_scene(data_copy, camera=cam_id)
+                rgb_array = self._renderer.render()
+            
+            return rgb_array
+            
+        except Exception as e:
+            print(f"Error rendering camera '{camera_name}': {e}")
+            return np.zeros((height, width, 3), dtype=np.uint8)
 
     def serve(self) -> None:
         # start the zmq server
