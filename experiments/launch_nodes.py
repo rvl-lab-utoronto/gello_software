@@ -36,7 +36,8 @@ def launch_robot_server(args: Args):
             Path(__file__).parent.parent / "third_party" / "mujoco_menagerie"
         )
         # xml = MENAGERIE_ROOT / "franka_emika_panda" / "panda.xml"
-        xml = "/home/sebastiana/Granular_material_benchmark/envs/franka_scooping_env/scooping.xml"
+        REPO_ROOT: Path = Path(__file__).parent.parent.parent.parent
+        xml = f"{str(REPO_ROOT)}/envs/franka_scooping_env/scooping.xml"
         # xml = Path("/home/zhaodong/code/gello_software/granular_envs/panda.xml")
         gripper_xml = None
         server = MujocoRobotServer(
