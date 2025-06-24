@@ -193,7 +193,8 @@ class MujocoRobotServer:
     def get_observations(self) -> Dict[str, np.ndarray]:
         joint_positions = self._data.qpos.copy()[: self._num_joints]
         joint_velocities = self._data.qvel.copy()[: self._num_joints]
-        ee_site = "attachment_site"
+        # ee_site = "attachment_site"
+        ee_site = "link7" # Default for Panda, change as needed
         try:
             ee_pos = self._data.site_xpos.copy()[
                 mujoco.mj_name2id(self._model, 6, ee_site)
