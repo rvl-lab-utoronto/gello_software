@@ -6,6 +6,20 @@ import tyro
 from gello.robots.robot import BimanualRobot, PrintRobot
 from gello.zmq_core.robot_node import ZMQServerRobot
 
+import importlib.util
+import sys
+from pathlib import Path
+
+def import_function_from_file(file_path, func_name):
+    file_path = Path(file_path).resolve()
+    module_name = file_path.stem
+
+    spec = importlib.util.spec_from_file_location(module_name, str(file_path))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    return getattr(module, func_name)
 
 @dataclass
 class Args:
@@ -13,6 +27,7 @@ class Args:
     robot_port: int = 6001
     hostname: str = "127.0.0.1"
     robot_ip: str = "127.0.0.1"
+    env: str = "scooping"
 
 
 def launch_robot_server(args: Args):
@@ -37,7 +52,13 @@ def launch_robot_server(args: Args):
         )
         # xml = MENAGERIE_ROOT / "franka_emika_panda" / "panda.xml"
         REPO_ROOT: Path = Path(__file__).parent.parent.parent.parent
-        xml = f"{str(REPO_ROOT)}/envs/franka_scooping_env/scooping.xml"
+        if args.env == "scooping":
+            original_xml = f"{str(REPO_ROOT)}/envs/franka_scooping_env/scooping.xml"
+            xml = f"{str(REPO_ROOT)}/envs/franka_scooping_env/scooping_randomized.xml"
+            randomize_func = import_function_from_file(f"{str(REPO_ROOT)}/envs/franka_scooping_env/randomize.py", "randomize_scene")
+            randomize_func(original_xml, xml)
+        else:
+            NotImplementedError()
         # xml = Path("/home/zhaodong/code/gello_software/granular_envs/panda.xml")
         gripper_xml = None
         server = MujocoRobotServer(
