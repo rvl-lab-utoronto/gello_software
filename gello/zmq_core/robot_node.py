@@ -48,6 +48,8 @@ class ZMQServerRobot:
                     result = self._robot.command_joint_state(**args)
                 elif method == "get_observations":
                     result = self._robot.get_observations()
+                elif method == "reset_simulation":
+                    result = self._robot.reset_simulation()
                 else:
                     result = {"error": "Invalid method"}
                     print(result)
@@ -123,3 +125,13 @@ class ZMQClientRobot(Robot):
         self._socket.send(send_message)
         result = pickle.loads(self._socket.recv())
         return result
+
+    def reset_simulation(self) -> dict:
+        """Reset the simulation to initial state."""
+        try:
+            request = {"method": "reset_simulation", "args": {}}
+            self._socket.send(pickle.dumps(request))
+            response = pickle.loads(self._socket.recv())
+            return response
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

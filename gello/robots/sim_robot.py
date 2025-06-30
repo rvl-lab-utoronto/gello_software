@@ -8,6 +8,7 @@ import mujoco.viewer
 import numpy as np
 import zmq
 from dm_control import mjcf
+import cv2
 
 from gello.robots.robot import Robot
 
@@ -116,6 +117,8 @@ class ZMQRobotServer:
                     result = self._robot.get_camera_names()
                 elif method == "render_camera":
                     result = self._robot.render_camera(**args)
+                elif method == "reset_simulation":
+                    result = self._robot.reset_simulation()
                 else:
                     result = {"error": "Invalid method"}
                     print(result)
@@ -142,6 +145,9 @@ class MujocoRobotServer:
         host: str = "127.0.0.1",
         port: int = 5556,
         print_joints: bool = False,
+        show_camera_window: bool = False,
+        camera_window_name: str = "default_camera",
+        camera_window_size: tuple = (640, 480),
     ):
         self._has_gripper = gripper_xml_path is not None
         self._model = mujoco.MjModel.from_xml_path(str(xml_path))
@@ -161,6 +167,24 @@ class MujocoRobotServer:
 
         # Initialize renderer for camera functionality and pre-allocate to avoid issues
         self._renderer = mujoco.Renderer(self._model, height=128, width=128)
+
+        # Camera window settings
+        self._show_camera_window = show_camera_window
+        self._camera_window_name = camera_window_name
+        self._camera_window_size = camera_window_size
+        self._camera_renderer = None
+        
+        if self._show_camera_window:
+            # Initialize separate renderer for camera window
+            self._camera_renderer = mujoco.Renderer(
+                self._model, 
+                height=camera_window_size[1], 
+                width=camera_window_size[0]
+            )
+            cv2.namedWindow(camera_window_name, cv2.WINDOW_AUTOSIZE)
+
+        self._simulation_lock = threading.RLock()  # Use RLock for reentrant locking
+        self._reset_requested = False
 
     def num_dofs(self) -> int:
         return self._num_joints
@@ -193,12 +217,12 @@ class MujocoRobotServer:
     def get_observations(self) -> Dict[str, np.ndarray]:
         joint_positions = self._data.qpos.copy()[: self._num_joints]
         joint_velocities = self._data.qvel.copy()[: self._num_joints]
-        # ee_site = "attachment_site"
-        ee_site = "ee_site" # Default for Panda, change as needed
+        ee_site = "attachment_site"
         try:
             ee_pos = self._data.site_xpos.copy()[
                 mujoco.mj_name2id(self._model, 6, ee_site)
             ]
+            print(f"ee_pos: {ee_pos}")
             ee_mat = self._data.site_xmat.copy()[
                 mujoco.mj_name2id(self._model, 6, ee_site)
             ]
@@ -255,7 +279,7 @@ class MujocoRobotServer:
                     return np.zeros((height, width, 3), dtype=np.uint8)
             
             # CRITICAL FIX: Create a separate data copy for rendering to avoid conflicts
-            with threading.Lock():  # Thread safety
+            with self._simulation_lock:  # Thread safety
                 data_copy = mujoco.MjData(self._model)
                 data_copy.qpos[:] = self._data.qpos[:]
                 data_copy.qvel[:] = self._data.qvel[:]
@@ -286,15 +310,21 @@ class MujocoRobotServer:
             while viewer.is_running():
                 step_start = time.time()
 
-                # mj_step can be replaced with code that also evaluates
-                # a policy and applies a control signal before stepping the physics.
-                self._data.ctrl[:] = self._joint_cmd
-                # self._data.qpos[:] = self._joint_cmd
-                mujoco.mj_step(self._model, self._data)
-                self._joint_state = self._data.qpos.copy()[: self._num_joints]
+                # Use lock to prevent conflicts during reset
+                with self._simulation_lock:
+                    # mj_step can be replaced with code that also evaluates
+                    # a policy and applies a control signal before stepping the physics.
+                    self._data.ctrl[:] = self._joint_cmd
+                    # self._data.qpos[:] = self._joint_cmd
+                    mujoco.mj_step(self._model, self._data)
+                    self._joint_state = self._data.qpos.copy()[: self._num_joints]
 
                 if self._print_joints:
                     print(self._joint_state)
+
+                # Update camera window if enabled
+                if self._show_camera_window:
+                    self._update_camera_window()
 
                 # Example modification of a viewer option: toggle contact points every two seconds.
                 with viewer.lock():
@@ -313,8 +343,83 @@ class MujocoRobotServer:
                 if time_until_next_step > 0:
                     time.sleep(time_until_next_step)
 
+                # Check if camera window was closed
+                if self._show_camera_window and cv2.getWindowProperty(self._camera_window_name, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+
+        # Cleanup camera window
+        if self._show_camera_window:
+            cv2.destroyWindow(self._camera_window_name)
+
+    def _update_camera_window(self):
+        """Update the camera window with current view."""
+        try:
+            # Get camera ID
+            cam_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_CAMERA, self._camera_window_name)
+            if cam_id < 0:
+                # Fallback to first camera if named camera not found
+                cam_id = 0
+            
+            # Render the camera view
+            self._camera_renderer.update_scene(self._data, camera=cam_id)
+            rgb_array = self._camera_renderer.render()
+            
+            # Convert RGB to BGR for OpenCV
+            bgr_array = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+            
+            # Display the image
+            cv2.imshow(self._camera_window_name, bgr_array)
+            cv2.waitKey(1)  # Non-blocking wait
+            
+        except Exception as e:
+            print(f"Error updating camera window: {e}")
+
+    def reset_simulation(self) -> None:
+        """Reset the simulation to initial state (same as GUI reset button)."""
+        try:
+            # Reset to initial state
+            mujoco.mj_resetData(self._model, self._data)
+            
+            # If there's a 'home' keyframe defined, use it
+            home_key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, 'home')
+            if home_key_id >= 0:
+                # Reset to the 'home' keyframe state
+                mujoco.mj_resetDataKeyframe(self._model, self._data, home_key_id)
+            
+            # Forward the simulation to compute derived quantities
+            mujoco.mj_forward(self._model, self._data)
+            
+            # Reset control commands and joint states
+            self._data.ctrl[:] = 0  # Clear control inputs
+            self._joint_state = self._data.qpos.copy()[: self._num_joints]
+            self._joint_cmd = self._joint_state.copy()
+            
+            print("Simulation reset to initial state")
+            return {"status": "success", "message": "Simulation reset"}
+            
+        except Exception as e:
+            print(f"Error resetting simulation: {e}")
+            return {"status": "error", "message": str(e)}
+
     def stop(self) -> None:
         self._zmq_server_thread.join()
 
     def __del__(self) -> None:
         self.stop()
+
+
+# Example usage
+if __name__ == "__main__":
+    server = MujocoRobotServer(
+        xml_path="/home/sebastiana/Granular_material_benchmark/envs/franka_scooping_env/scooping.xml",
+        show_camera_window=True,
+        camera_window_name="cam1",  # Name of camera in your XML, or use "default_camera"
+        camera_window_size=(640, 480)
+    )
+    
+    try:
+        server.serve()
+    except KeyboardInterrupt:
+        print("Shutting down...")
+    finally:
+        server.stop()
