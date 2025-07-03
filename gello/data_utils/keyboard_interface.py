@@ -21,7 +21,7 @@ class KBReset:
     def update(self) -> str:
         pressed_last = self._get_pressed()
         
-        if KEY_RESET in pressed_last:
+        if KEY_RESET in pressed_last and not self._saved:
             self._set_color(BLUE)
             return "reset"
 

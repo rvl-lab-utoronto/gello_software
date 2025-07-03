@@ -6,9 +6,12 @@ from typing import Any, Dict, Optional
 import mujoco
 import mujoco.viewer
 import numpy as np
+from pathlib import Path
 import zmq
 from dm_control import mjcf
 import cv2
+import sys
+import os
 
 from gello.robots.robot import Robot
 
@@ -148,6 +151,8 @@ class MujocoRobotServer:
         show_camera_window: bool = False,
         camera_window_name: str = "default_camera",
         camera_window_size: tuple = (640, 480),
+        task: str = None,
+        background_images_dir: str = None,
     ):
         self._has_gripper = gripper_xml_path is not None
         self._model = mujoco.MjModel.from_xml_path(str(xml_path))
@@ -186,6 +191,32 @@ class MujocoRobotServer:
         self._simulation_lock = threading.RLock()  # Use RLock for reentrant locking
         self._reset_requested = False
 
+        REPO_ROOT: Path = Path(__file__).parent.parent.parent.parent.parent
+        sys.path.insert(0, os.path.abspath(REPO_ROOT))
+
+        if task == "scooping":
+            #load class for randomizing scooping environment
+            from envs.franka_scooping_env.randomize import TeleopRandomization
+            self._teleop_randomization = TeleopRandomization(self._model, self._data)
+            print("Successfully loaded TeleopRandomization for scooping task")
+            
+            # # Also load the new EnvRandomizer if background images are specified
+            # if background_images_dir:
+            #     from envs.franka_scooping_env.env_randomizer import EnvRandomizer
+            #     self._env_randomizer = EnvRandomizer(xml_path, background_images_dir=background_images_dir)
+            #     print(f"Loaded EnvRandomizer with background images from: {background_images_dir}")
+            # else:
+            #     self._env_randomizer = None
+                
+        elif task == "sweeping":    
+            raise NotImplementedError("Sweeping task not implemented yet.")
+        elif task == "pouring":
+            raise NotImplementedError("Pouring task not implemented yet.")
+        elif task == "forming":
+            raise NotImplementedError("Forming task not implemented yet.")
+        else:
+            raise ValueError(f"Unknown task: {task}. Supported tasks are 'scooping', 'sweeping', and 'pouring'.")
+
     def num_dofs(self) -> int:
         return self._num_joints
 
@@ -222,7 +253,6 @@ class MujocoRobotServer:
             ee_pos = self._data.site_xpos.copy()[
                 mujoco.mj_name2id(self._model, 6, ee_site)
             ]
-            print(f"ee_pos: {ee_pos}")
             ee_mat = self._data.site_xmat.copy()[
                 mujoco.mj_name2id(self._model, 6, ee_site)
             ]
@@ -326,12 +356,12 @@ class MujocoRobotServer:
                 if self._show_camera_window:
                     self._update_camera_window()
 
-                # Example modification of a viewer option: toggle contact points every two seconds.
-                with viewer.lock():
-                    # TODO remove?
-                    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = int(
-                        self._data.time % 2
-                    )
+                # # Example modification of a viewer option: toggle contact points every two seconds.
+                # with viewer.lock():
+                #     # TODO remove?
+                #     viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = int(
+                #         self._data.time % 2
+                #     )
 
                 # Pick up changes to the physics state, apply perturbations, update options from GUI.
                 viewer.sync()
@@ -385,7 +415,14 @@ class MujocoRobotServer:
             if home_key_id >= 0:
                 # Reset to the 'home' keyframe state
                 mujoco.mj_resetDataKeyframe(self._model, self._data, home_key_id)
+
+            # Use traditional randomization
+            self._teleop_randomization.randomise_environment(self._model, self._data)
             
+            # If EnvRandomizer is available and we want new background, use it instead
+            # Note: This would require stopping the viewer, but for now just use traditional reset
+            # TODO: Implement background switching without model replacement
+
             # Forward the simulation to compute derived quantities
             mujoco.mj_forward(self._model, self._data)
             

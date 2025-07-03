@@ -73,6 +73,7 @@ def launch_robot_server(args: Args):
             show_camera_window=True,
             camera_window_name="wrist_cam",
             camera_window_size=(640, 640),
+            task=args.env,
         )
         server.serve()
     elif args.robot == "sim_xarm":
