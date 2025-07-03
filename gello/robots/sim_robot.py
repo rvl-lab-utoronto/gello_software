@@ -179,6 +179,7 @@ class MujocoRobotServer:
         self._camera_window_size = camera_window_size
         self._camera_renderer = None
         
+        # Don't create cv2 window here - wait until after MuJoCo viewer launches
         if self._show_camera_window:
             # Initialize separate renderer for camera window
             self._camera_renderer = mujoco.Renderer(
@@ -186,7 +187,7 @@ class MujocoRobotServer:
                 height=camera_window_size[1], 
                 width=camera_window_size[0]
             )
-            cv2.namedWindow(camera_window_name, cv2.WINDOW_AUTOSIZE)
+            # cv2.namedWindow removed from here
 
         self._simulation_lock = threading.RLock()  # Use RLock for reentrant locking
         self._reset_requested = False
@@ -332,11 +333,26 @@ class MujocoRobotServer:
     def serve(self) -> None:
         # start the zmq server
         self._zmq_server_thread.start()
-        with mujoco.viewer.launch_passive(self._model, self._data) as viewer:
-            # viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
-            # cam_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_CAMERA, 'default_view')
-            # viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
-            # viewer.cam.fixedcamid = cam_id
+        with mujoco.viewer.launch_passive(self._model, self._data, show_left_ui=True, show_right_ui=False) as viewer:
+            # Set the viewer to use a specific camera from your XML
+            try:
+                cam_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_CAMERA, 'leftshoulder')
+                if cam_id >= 0:
+                    viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+                    viewer.cam.fixedcamid = cam_id
+                    print(f"Set GUI view to camera: leftshoulder (ID: {cam_id})")
+                else:
+                    print("Camera 'leftshoulder' not found, using default view")
+            except Exception as e:
+                print(f"Error setting camera view: {e}")
+            
+            # Create cv2 window AFTER MuJoCo viewer is launched
+            if self._show_camera_window:
+                cv2.namedWindow(self._camera_window_name, cv2.WINDOW_AUTOSIZE)
+                # Position the cv2 window to the left to make room for MuJoCo
+                cv2.moveWindow(self._camera_window_name, 50, 100)  # x=50, y=100
+                print(f"Created camera window: {self._camera_window_name}")
+            
             while viewer.is_running():
                 step_start = time.time()
 
@@ -374,12 +390,24 @@ class MujocoRobotServer:
                     time.sleep(time_until_next_step)
 
                 # Check if camera window was closed
-                if self._show_camera_window and cv2.getWindowProperty(self._camera_window_name, cv2.WND_PROP_VISIBLE) < 1:
-                    break
+                if self._show_camera_window:
+                    try:
+                        if cv2.getWindowProperty(self._camera_window_name, cv2.WND_PROP_VISIBLE) < 1:
+                            print("Camera window closed, stopping viewer...")
+                            break
+                    except cv2.error:
+                        # Window was closed
+                        print("Camera window closed (cv2.error), stopping viewer...")
+                        break
 
         # Cleanup camera window
         if self._show_camera_window:
-            cv2.destroyWindow(self._camera_window_name)
+            try:
+                cv2.destroyWindow(self._camera_window_name)
+                cv2.waitKey(1)  # Ensure cleanup
+                print("Camera window cleaned up")
+            except:
+                pass
 
     def _update_camera_window(self):
         """Update the camera window with current view."""
