@@ -170,6 +170,9 @@ class MujocoRobotServer:
         # Add thread lock for camera rendering
         self._render_lock = threading.Lock()
 
+        # Add reset lock to prevent conflicts during reset
+        self._reset_lock = threading.Lock()
+
         # Initialize renderer for camera functionality and pre-allocate to avoid issues
         self._renderer = mujoco.Renderer(self._model, height=128, width=128)
 
@@ -434,37 +437,46 @@ class MujocoRobotServer:
 
     def reset_simulation(self) -> None:
         """Reset the simulation to initial state (same as GUI reset button)."""
-        try:
-            # Reset to initial state
-            mujoco.mj_resetData(self._model, self._data)
-            
-            # If there's a 'home' keyframe defined, use it
-            home_key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, 'home')
-            if home_key_id >= 0:
-                # Reset to the 'home' keyframe state
-                mujoco.mj_resetDataKeyframe(self._model, self._data, home_key_id)
+        with self._reset_lock:
+            try:
+                # Reset to initial state
+                mujoco.mj_resetData(self._model, self._data)
+                
+                # If there's a 'home' keyframe defined, use it
+                home_key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, 'home')
+                print(f"Home keyframe ID: {home_key_id}")
+                if home_key_id >= 0:
+                    # Reset to the 'home' keyframe state
+                    mujoco.mj_resetDataKeyframe(self._model, self._data, home_key_id)
 
-            # Use traditional randomization
-            self._teleop_randomization.randomise_environment(self._model, self._data)
-            
-            # If EnvRandomizer is available and we want new background, use it instead
-            # Note: This would require stopping the viewer, but for now just use traditional reset
-            # TODO: Implement background switching without model replacement
+                # Use traditional randomization
+                print("Starting environment randomization...")
+                self._teleop_randomization.randomise_environment(self._model, self._data)
+                self._data = mujoco.MjData(self._model)
+                print('pass 1')
+                
+                # If EnvRandomizer is available and we want new background, use it instead
+                # Note: This would require stopping the viewer, but for now just use traditional reset
+                # TODO: Implement background switching without model replacement
 
-            # Forward the simulation to compute derived quantities
-            mujoco.mj_forward(self._model, self._data)
-            
-            # Reset control commands and joint states
-            self._data.ctrl[:] = 0  # Clear control inputs
-            self._joint_state = self._data.qpos.copy()[: self._num_joints]
-            self._joint_cmd = self._joint_state.copy()
-            
-            print("Simulation reset to initial state")
-            return {"status": "success", "message": "Simulation reset"}
-            
-        except Exception as e:
-            print(f"Error resetting simulation: {e}")
-            return {"status": "error", "message": str(e)}
+                # Forward the simulation to compute derived quantities
+                mujoco.mj_forward(self._model, self._data)
+                print('pass 2')
+
+                # mujoco.mjr_uploadMesh(self._model, self._context, 0, -1)
+                # mujoco.mjr_uploadHField(self._model, self._context, 0, -1)
+                
+                # Reset control commands and joint states
+                self._data.ctrl[:] = 0  # Clear control inputs
+                self._joint_state = self._data.qpos.copy()[: self._num_joints]
+                self._joint_cmd = self._joint_state.copy()
+                
+                print("Simulation reset to initial state")
+                return {"status": "success", "message": "Simulation reset"}
+                
+            except Exception as e:
+                print(f"Error resetting simulation: {e}")
+                return {"status": "error", "message": str(e)}
 
     def stop(self) -> None:
         self._zmq_server_thread.join()
