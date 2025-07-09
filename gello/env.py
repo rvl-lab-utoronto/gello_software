@@ -78,6 +78,14 @@ class RobotEnv:
         observations["ee_pos_quat"] = robot_obs["ee_pos_quat"]
         observations["gripper_position"] = robot_obs["gripper_position"]
         return observations
+    
+    def get_jac(self) -> Dict[str, Any]:
+        """Get jacobian from the model.
+
+        Returns:
+            jac: jacobian at the current state.
+        """
+        return self._robot.get_jacobian()
 
 
 def main() -> None:

@@ -112,6 +112,8 @@ class ZMQRobotServer:
                     result = self._robot.command_joint_state(**args)
                 elif method == "get_observations":
                     result = self._robot.get_observations()
+                elif method == "get_jacobian":
+                    result = self._robot.get_jacobian()
                 elif method == "get_camera_names":
                     result = self._robot.get_camera_names()
                 elif method == "render_camera":
@@ -139,6 +141,7 @@ class MujocoRobotServer:
         self,
         xml_path: str,
         gripper_xml_path: Optional[str] = None,
+        ee_body_id: Optional[str] = None,
         host: str = "127.0.0.1",
         port: int = 5556,
         print_joints: bool = False,
@@ -150,6 +153,7 @@ class MujocoRobotServer:
         self._num_joints = self._model.nu
         self._joint_state = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self._joint_cmd = self._joint_state
+        self._ee_body_id = ee_body_id
 
         self._zmq_server = ZMQRobotServer(robot=self, host=host, port=port)
         self._zmq_server_thread = ZMQServerThread(self._zmq_server)
@@ -214,6 +218,17 @@ class MujocoRobotServer:
             "ee_pos_quat": np.concatenate([ee_pos, ee_quat]),
             "gripper_position": gripper_pos,
         }
+    
+    def get_jacobian(self):
+        # Compute Jacobian
+        jac_pos = np.zeros((3, self._model.nv))
+        jac_rot = np.zeros((3, self._model.nv))
+        current_ee_pos = self.get_observations()["ee_pos_quat"]
+        mujoco.mj_jac(self._model, self._data, jac_pos, jac_rot, current_ee_pos[:3], self._ee_body_id)
+        
+        # Combine position and rotation Jacobians
+        jacobian = np.vstack([jac_pos, jac_rot])
+        return jacobian
     
     def get_camera_names(self) -> list:
         """Get list of available camera names."""

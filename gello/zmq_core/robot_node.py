@@ -123,3 +123,15 @@ class ZMQClientRobot(Robot):
         self._socket.send(send_message)
         result = pickle.loads(self._socket.recv())
         return result
+    
+    def get_jacobian(self) -> np.ndarray:
+        """Get the current observations of the leader robot.
+
+        Returns:
+            np.ndarray: The current jacobian of the leader robot.
+        """
+        request = {"method": "get_jacobian"}
+        send_message = pickle.dumps(request)
+        self._socket.send(send_message)
+        result = pickle.loads(self._socket.recv())
+        return result
