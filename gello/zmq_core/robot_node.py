@@ -71,6 +71,8 @@ class ZMQClientRobot(Robot):
     """A class representing a ZMQ client for a leader robot."""
 
     def __init__(self, port: int = DEFAULT_ROBOT_PORT, host: str = "127.0.0.1"):
+        self.host = host
+        self.port = port
         self._context = zmq.Context()
         self._socket = self._context.socket(zmq.REQ)
         self._socket.connect(f"tcp://{host}:{port}")
@@ -135,3 +137,6 @@ class ZMQClientRobot(Robot):
             return response
         except Exception as e:
             return {"status": "error", "message": str(e)}
+        
+    def reconnect(self):
+        self._socket.connect(f"tcp://{self.host}:{self.port}")

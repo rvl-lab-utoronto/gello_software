@@ -152,15 +152,14 @@ class MujocoRobotServer:
         camera_window_name: str = "default_camera",
         camera_window_size: tuple = (640, 480),
         task: str = None,
+        randomize_list: list = None,
         background_images_dir: str = None,
     ):
-        self._has_gripper = gripper_xml_path is not None
-        self._model = mujoco.MjModel.from_xml_path(str(xml_path))
-        self._data = mujoco.MjData(self._model)
+        self.randomize_func = randomize_list[0] if randomize_list else None
+        self.original_xml = randomize_list[1] if randomize_list else None
+        self.xml_path = randomize_list[2] if randomize_list else xml_path
 
-        self._num_joints = self._model.nu
-        self._joint_state = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        self._joint_cmd = self._joint_state
+        self._has_gripper = gripper_xml_path is not None
 
         self._zmq_server = ZMQRobotServer(robot=self, host=host, port=port)
         self._zmq_server_thread = ZMQServerThread(self._zmq_server)
@@ -170,27 +169,19 @@ class MujocoRobotServer:
         # Add thread lock for camera rendering
         self._render_lock = threading.Lock()
 
-        # Initialize renderer for camera functionality and pre-allocate to avoid issues
-        self._renderer = mujoco.Renderer(self._model, height=128, width=128)
-
         # Camera window settings
         self._show_camera_window = show_camera_window
         self._camera_window_name = camera_window_name
         self._camera_window_size = camera_window_size
-        self._camera_renderer = None
         
-        # Don't create cv2 window here - wait until after MuJoCo viewer launches
-        if self._show_camera_window:
-            # Initialize separate renderer for camera window
-            self._camera_renderer = mujoco.Renderer(
-                self._model, 
-                height=camera_window_size[1], 
-                width=camera_window_size[0]
-            )
-            # cv2.namedWindow removed from here
+        self._initialize_simulation()
+
+        self._viewer_ptrs_update_requested = False
+        self._cam_window_reset_requested = False
 
         self._simulation_lock = threading.RLock()  # Use RLock for reentrant locking
         self._reset_requested = False
+        self._reset_completed = True
 
         REPO_ROOT: Path = Path(__file__).parent.parent.parent.parent.parent
         sys.path.insert(0, os.path.abspath(REPO_ROOT))
@@ -217,6 +208,28 @@ class MujocoRobotServer:
             raise NotImplementedError("Forming task not implemented yet.")
         else:
             raise ValueError(f"Unknown task: {task}. Supported tasks are 'scooping', 'sweeping', and 'pouring'.")
+
+    def _initialize_simulation(self):
+        """Initialize model, data, renderers, and task-specific components."""
+        self._model = mujoco.MjModel.from_xml_path(str(self.xml_path))
+        self._data = mujoco.MjData(self._model)
+
+        # Joint state
+        self._num_joints = self._model.nu
+        self._joint_state = np.zeros(self._num_joints, dtype=np.float64)
+        self._joint_cmd = self._joint_state.copy()
+
+        # Renderer
+        self._renderer = mujoco.Renderer(self._model, height=128, width=128)
+
+        # Optional camera renderer
+        self._camera_renderer = None
+        if self._show_camera_window:
+            self._camera_renderer = mujoco.Renderer(
+                self._model,
+                height=self._camera_window_size[1],
+                width=self._camera_window_size[0],
+            )
 
     def num_dofs(self) -> int:
         return self._num_joints
@@ -356,6 +369,46 @@ class MujocoRobotServer:
             while viewer.is_running():
                 step_start = time.time()
 
+                if self._reset_completed == False:
+                    continue
+
+                if self._viewer_ptrs_update_requested:
+                    if hasattr(viewer, "update_mjptrs"):
+                        with viewer.lock():
+                            viewer.update_mjptrs(self._model, self._data)
+                        print("[serve] viewer pointers updated")
+                    else:
+                        # --- older MuJoCo: rebuild the viewer completely ---
+                        viewer.close()                 # 1) close old window
+                        viewer = mujoco.viewer.launch_passive(
+                            self._model, self._data,
+                            show_left_ui=True, show_right_ui=False
+                        )                                  # 2) open a new one
+                        try:
+                            cam_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_CAMERA, 'leftshoulder')
+                            if cam_id >= 0:
+                                viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+                                viewer.cam.fixedcamid = cam_id
+                                print(f"Set GUI view to camera: leftshoulder (ID: {cam_id})")
+                            else:
+                                print("Camera 'leftshoulder' not found, using default view")
+                        except Exception as e:
+                            print(f"Error setting camera view: {e}")
+                        print("[serve] viewer relaunched")
+                    self._viewer_ptrs_update_requested = False
+                
+                if self._cam_window_reset_requested and self._show_camera_window:
+                    if self._viewer_ptrs_update_requested:
+                        continue # ensure viewer pointers are updated before resetting camera window
+                    try:
+                        cv2.destroyWindow(self._camera_window_name)
+                    except cv2.error:
+                        pass  # window may already be gone
+                    cv2.namedWindow(self._camera_window_name, cv2.WINDOW_AUTOSIZE)
+                    cv2.moveWindow(self._camera_window_name, 50, 100)
+                    self._cam_window_reset_requested = False
+                    print("[serve] Camera window recreated")
+
                 # Use lock to prevent conflicts during reset
                 with self._simulation_lock:
                     # mj_step can be replaced with code that also evaluates
@@ -370,6 +423,8 @@ class MujocoRobotServer:
 
                 # Update camera window if enabled
                 if self._show_camera_window:
+                    if self._cam_window_reset_requested:
+                        continue
                     self._update_camera_window()
 
                 # # Example modification of a viewer option: toggle contact points every two seconds.
@@ -432,39 +487,38 @@ class MujocoRobotServer:
         except Exception as e:
             print(f"Error updating camera window: {e}")
 
-    def reset_simulation(self) -> None:
-        """Reset the simulation to initial state (same as GUI reset button)."""
-        try:
-            # Reset to initial state
-            mujoco.mj_resetData(self._model, self._data)
-            
-            # If there's a 'home' keyframe defined, use it
-            home_key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, 'home')
-            if home_key_id >= 0:
-                # Reset to the 'home' keyframe state
-                mujoco.mj_resetDataKeyframe(self._model, self._data, home_key_id)
+    def reset_simulation(self):
+        with self._simulation_lock:
+            self._reset_completed = False
+            # close all mujoco viewer windows and renderers
+            if self._show_camera_window:
+                self._cam_window_reset_requested = True
 
-            # Use traditional randomization
-            self._teleop_randomization.randomise_environment(self._model, self._data)
-            
-            # If EnvRandomizer is available and we want new background, use it instead
-            # Note: This would require stopping the viewer, but for now just use traditional reset
-            # TODO: Implement background switching without model replacement
+            # randomize the scene if a randomization function is provided
+            if self.randomize_func:
+                print("Randomizing scene...")
+                self.randomize_func(self.original_xml, self.xml_path)
+                print("Scene randomized")
 
-            # Forward the simulation to compute derived quantities
-            mujoco.mj_forward(self._model, self._data)
+            self._initialize_simulation()
+
+            self._viewer_ptrs_update_requested = True
+            print("Simulation reset requested")
+
+            self._reset_completed = True
+
+            return {"status": "success"}
+            # if self._show_camera_window:
+            #         cv2.namedWindow(self._camera_window_name, cv2.WINDOW_AUTOSIZE)
+            #         # Position the cv2 window to the left to make room for MuJoCo
+            #         cv2.moveWindow(self._camera_window_name, 50, 100)  # x=50, y=100
+            #         print(f"Created camera window: {self._camera_window_name}")
+
+            # if self._show_camera_window:
+            #     self._update_camera_window()
             
-            # Reset control commands and joint states
-            self._data.ctrl[:] = 0  # Clear control inputs
-            self._joint_state = self._data.qpos.copy()[: self._num_joints]
-            self._joint_cmd = self._joint_state.copy()
-            
-            print("Simulation reset to initial state")
-            return {"status": "success", "message": "Simulation reset"}
-            
-        except Exception as e:
-            print(f"Error resetting simulation: {e}")
-            return {"status": "error", "message": str(e)}
+            # mujoco.viewer.launch_passive(self._model, self._data)
+
 
     def stop(self) -> None:
         self._zmq_server_thread.join()
