@@ -211,6 +211,7 @@ class MujocoRobotServer:
             #     print(f"Loaded EnvRandomizer with background images from: {background_images_dir}")
             # else:
             #     self._env_randomizer = None
+            # yeetus
                 
         elif task == "sweeping":    
             raise NotImplementedError("Sweeping task not implemented yet.")
