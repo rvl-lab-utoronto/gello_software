@@ -151,7 +151,7 @@ class MujocoRobotServer:
         show_camera_window: bool = False,
         camera_window_name: str = "default_camera",
         camera_window_size: tuple = (640, 480),
-        task: str = None,
+        task: str = "sweeping",
         background_images_dir: str = None,
     ):
         self._has_gripper = gripper_xml_path is not None
@@ -213,8 +213,10 @@ class MujocoRobotServer:
             #     self._env_randomizer = None
             # yeetus
                 
-        elif task == "sweeping":    
-            raise NotImplementedError("Sweeping task not implemented yet.")
+        elif task == "sweeping":
+            from envs.franka_sweeping_env.randomize import TeleopRandomization
+            self._teleop_randomization = TeleopRandomization(self._model, self._data)
+            print("Successfully loaded TeleopRandomization for sweeping task")    
         elif task == "pouring":
             raise NotImplementedError("Pouring task not implemented yet.")
         elif task == "forming":
@@ -489,10 +491,11 @@ class MujocoRobotServer:
 # Example usage
 if __name__ == "__main__":
     server = MujocoRobotServer(
-        xml_path="/home/sebastiana/Granular_material_benchmark/envs/franka_scooping_env/scooping.xml",
+        xml_path="/home/olivia/Granular_material_benchmark/envs/franka_sweeping_env/sweeping.xml",
         show_camera_window=True,
         camera_window_name="cam1",  # Name of camera in your XML, or use "default_camera"
-        camera_window_size=(640, 480)
+        camera_window_size=(640, 480),
+        task = "sweeping"
     )
     
     try:

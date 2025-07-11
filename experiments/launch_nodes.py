@@ -27,7 +27,7 @@ class Args:
     robot_port: int = 6001
     hostname: str = "127.0.0.1"
     robot_ip: str = "127.0.0.1"
-    env: str = "scooping"
+    env: str = "sweeping"
 
 
 def launch_robot_server(args: Args):
@@ -58,9 +58,15 @@ def launch_robot_server(args: Args):
             randomize_func = import_function_from_file(f"{str(REPO_ROOT)}/envs/franka_scooping_env/randomize.py", "randomize_scene")
             randomize_func(original_xml, xml)
         elif args.env == "sweeping":
-            NotImplementedError()
+            original_xml = f"{str(REPO_ROOT)}/envs/franka_sweeping_env/sweeping.xml"
+            xml = f"{str(REPO_ROOT)}/envs/franka_sweeping_env/sweeping_randomized.xml"
+            randomize_func = import_function_from_file(f"{str(REPO_ROOT)}/envs/franka_sweeping_env/randomize.py", "randomize_scene")
+            randomize_func(original_xml, xml)
         elif args.env == "pouring":
-            NotImplementedError()
+            original_xml = f"{str(REPO_ROOT)}/envs/franka_pouring_large_container_env/pouring.xml"
+            xml = f"{str(REPO_ROOT)}/envs/franka_pouring_large_container_env/pouring_randomized.xml"
+            randomize_func = import_function_from_file(f"{str(REPO_ROOT)}/envs/franka_pouring_large_container_env/randomize.py", "randomize_scene")
+            randomize_func(original_xml, xml)
         else:
             NotImplementedError()
         # xml = Path("/home/zhaodong/code/gello_software/granular_envs/panda.xml")
