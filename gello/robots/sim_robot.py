@@ -166,6 +166,9 @@ class MujocoRobotServer:
         # Initialize renderer for camera functionality and pre-allocate to avoid issues
         self._renderer = mujoco.Renderer(self._model, height=128, width=128)
 
+        self.jac_pos = np.zeros((3, self._model.nv), dtype=np.float64)
+        self.jac_rot = np.zeros((3, self._model.nv), dtype=np.float64)
+
     def num_dofs(self) -> int:
         return self._num_joints
 
@@ -220,15 +223,12 @@ class MujocoRobotServer:
         }
     
     def get_jacobian(self):
-        # Compute Jacobian
-        jac_pos = np.zeros((3, self._model.nv))
-        jac_rot = np.zeros((3, self._model.nv))
-        current_ee_pos = self.get_observations()["ee_pos_quat"]
-        mujoco.mj_jac(self._model, self._data, jac_pos, jac_rot, current_ee_pos[:3], self._ee_body_id)
+        point = self.get_observations()["ee_pos_quat"][:3]
+        mujoco.mj_jac(self._model, self._data, self.jac_pos, self.jac_rot, point, self._model.body("spoon").id)
         
         # Combine position and rotation Jacobians
-        jacobian = np.vstack([jac_pos, jac_rot])
-        return jacobian
+        jacobian = np.vstack([self.jac_pos, self.jac_rot])
+        return jacobian[:, :8]
     
     def get_camera_names(self) -> list:
         """Get list of available camera names."""
