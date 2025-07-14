@@ -138,5 +138,15 @@ class ZMQClientRobot(Robot):
         except Exception as e:
             return {"status": "error", "message": str(e)}
         
+    def save_model_xml(self, xml_path):
+        """Save the model XML to the specified path."""
+        try:
+            request = {"method": "save_model_xml", "args": {"xml_path": xml_path}}
+            self._socket.send(pickle.dumps(request))
+            response = pickle.loads(self._socket.recv())
+            return response
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     def reconnect(self):
         self._socket.connect(f"tcp://{self.host}:{self.port}")

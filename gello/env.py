@@ -73,10 +73,12 @@ class RobotEnv:
         assert "joint_positions" in robot_obs
         assert "joint_velocities" in robot_obs
         assert "ee_pos_quat" in robot_obs
+        assert "flattened_states" in robot_obs
         observations["joint_positions"] = robot_obs["joint_positions"]
         observations["joint_velocities"] = robot_obs["joint_velocities"]
         observations["ee_pos_quat"] = robot_obs["ee_pos_quat"]
         observations["gripper_position"] = robot_obs["gripper_position"]
+        observations["flattened_states"] = robot_obs["flattened_states"]
         return observations
 
 

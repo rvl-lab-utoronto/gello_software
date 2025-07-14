@@ -122,6 +122,8 @@ class ZMQRobotServer:
                     result = self._robot.render_camera(**args)
                 elif method == "reset_simulation":
                     result = self._robot.reset_simulation()
+                elif method == "save_model_xml":
+                    result = self._robot.save_model_xml(**args)
                 else:
                     result = {"error": "Invalid method"}
                     print(result)
@@ -186,29 +188,6 @@ class MujocoRobotServer:
         REPO_ROOT: Path = Path(__file__).parent.parent.parent.parent.parent
         sys.path.insert(0, os.path.abspath(REPO_ROOT))
 
-        if task == "scooping":
-            #load class for randomizing scooping environment
-            from envs.franka_scooping_env.randomize import TeleopRandomization
-            self._teleop_randomization = TeleopRandomization(self._model, self._data)
-            print("Successfully loaded TeleopRandomization for scooping task")
-            
-            # # Also load the new EnvRandomizer if background images are specified
-            # if background_images_dir:
-            #     from envs.franka_scooping_env.env_randomizer import EnvRandomizer
-            #     self._env_randomizer = EnvRandomizer(xml_path, background_images_dir=background_images_dir)
-            #     print(f"Loaded EnvRandomizer with background images from: {background_images_dir}")
-            # else:
-            #     self._env_randomizer = None
-                
-        elif task == "sweeping":    
-            raise NotImplementedError("Sweeping task not implemented yet.")
-        elif task == "pouring":
-            raise NotImplementedError("Pouring task not implemented yet.")
-        elif task == "forming":
-            raise NotImplementedError("Forming task not implemented yet.")
-        else:
-            raise ValueError(f"Unknown task: {task}. Supported tasks are 'scooping', 'sweeping', and 'pouring'.")
-
     def _initialize_simulation(self):
         """Initialize model, data, renderers, and task-specific components."""
         self._model = mujoco.MjModel.from_xml_path(str(self.xml_path))
@@ -221,6 +200,9 @@ class MujocoRobotServer:
 
         # Renderer
         self._renderer = mujoco.Renderer(self._model, height=128, width=128)
+        self._depth_renderer = mujoco.Renderer(self._model, height=128, width=128); self._depth_renderer.enable_depth_rendering()
+        self._sgmnt_renderer = mujoco.Renderer(self._model, height=128, width=128); self._sgmnt_renderer.enable_segmentation_rendering()
+
 
         # Optional camera renderer
         self._camera_renderer = None
@@ -277,11 +259,19 @@ class MujocoRobotServer:
             ee_quat = np.zeros(4)
             ee_quat[0] = 1
         gripper_pos = self._data.qpos.copy()[self._num_joints - 1]
+
+        # record the everything in data as states for replay
+        time = self._data.time
+        qpos = np.copy(self._data.qpos)
+        qvel = np.copy(self._data.qvel)
+        flattened_states = np.concatenate([[time],qpos,qvel],axis=0)
+
         return {
             "joint_positions": joint_positions,
             "joint_velocities": joint_velocities,
             "ee_pos_quat": np.concatenate([ee_pos, ee_quat]),
             "gripper_position": gripper_pos,
+            "flattened_states": flattened_states,
         }
     
     def get_camera_names(self) -> list:
@@ -307,6 +297,8 @@ class MujocoRobotServer:
                 if self._renderer is not None:
                     self._renderer.close()
                 self._renderer = mujoco.Renderer(self._model, height=height, width=width)
+                self._depth_renderer = mujoco.Renderer(self._model, height=height, width=width); self._depth_renderer.enable_depth_rendering()
+                self._sgmnt_renderer = mujoco.Renderer(self._model, height=height, width=width); self._sgmnt_renderer.enable_segmentation_rendering()
             
             # Get camera ID
             try:
@@ -320,7 +312,7 @@ class MujocoRobotServer:
                         raise ValueError(f"Camera index {cam_id} out of range")
                 except:
                     print(f"Error: Invalid camera name '{camera_name}'")
-                    return np.zeros((height, width, 3), dtype=np.uint8)
+                    return np.zeros((height, width, 3), dtype=np.uint8), np.zeros((height, width), dtype=np.uint8), np.zeros((height, width, 2), dtype=np.uint8)
             
             # CRITICAL FIX: Create a separate data copy for rendering to avoid conflicts
             with self._simulation_lock:  # Thread safety
@@ -335,13 +327,17 @@ class MujocoRobotServer:
                 
                 # Render using the copied data
                 self._renderer.update_scene(data_copy, camera=cam_id)
+                self._depth_renderer.update_scene(data_copy, camera=cam_id)
+                self._sgmnt_renderer.update_scene(data_copy, camera=cam_id)
                 rgb_array = self._renderer.render()
+                depth_array = self._depth_renderer.render()
+                segmentation_array = self._sgmnt_renderer.render()
             
-            return rgb_array
+            return rgb_array, depth_array, segmentation_array
             
         except Exception as e:
             print(f"Error rendering camera '{camera_name}': {e}")
-            return np.zeros((height, width, 3), dtype=np.uint8)
+            return np.zeros((height, width, 3), dtype=np.uint8), np.zeros((height, width), dtype=np.uint8), np.zeros((height, width, 2), dtype=np.uint8)
 
     def serve(self) -> None:
         # start the zmq server
@@ -499,6 +495,8 @@ class MujocoRobotServer:
                 print("Randomizing scene...")
                 self.randomize_func(self.original_xml, self.xml_path)
                 print("Scene randomized")
+            else:
+                print("No randomization function provided, using original XML")
 
             self._initialize_simulation()
 
@@ -519,6 +517,13 @@ class MujocoRobotServer:
             
             # mujoco.viewer.launch_passive(self._model, self._data)
 
+    def save_model_xml(self, xml_path: str) -> dict:
+        """Save the current model XML to the specified path."""
+        try:
+            mujoco.mj_saveLastXML(xml_path, self._model)
+            return {"status": "success", "message": f"Model saved to {xml_path}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
     def stop(self) -> None:
         self._zmq_server_thread.join()
