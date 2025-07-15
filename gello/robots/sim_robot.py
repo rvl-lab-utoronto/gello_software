@@ -114,6 +114,8 @@ class ZMQRobotServer:
                     result = self._robot.get_observations()
                 elif method == "get_jacobian":
                     result = self._robot.get_jacobian()
+                elif method == "iterate_sgd":
+                    result = self._robot.iterate_sgd(args)
                 elif method == "get_camera_names":
                     result = self._robot.get_camera_names()
                 elif method == "render_camera":
@@ -229,7 +231,47 @@ class MujocoRobotServer:
         # Combine position and rotation Jacobians
         jacobian = np.vstack([self.jac_pos, self.jac_rot])
         return jacobian[:, :8]
-    
+
+    def check_joint_limits(self, q):
+        for i in range(len(q)):
+            q[i] = max(self._model.jnt_range[i][0], 
+                       min(q[i], self._model.jnt_range[i][1]))
+
+    def iterate_sgd(self, goal):
+        self.step_size = 0.5
+        self.tol = 0.1
+        self.alpha = 0.5
+        self.jacp = np.zeros((3, self._model.nv))
+        self.jacr = np.zeros((3, self._model.nv))
+
+        self._data.qpos[:self._num_joints] = self.get_observations()["joint_positions"]
+        # self._data.qpos[self._num_joints:] = 0
+
+        sgd_data = mujoco.MjData(self._model)
+        sgd_data.qpos[:] = 0.0
+
+        mujoco.mj_forward(self._model, sgd_data)
+        current_pose = sgd_data.body(self._model.body("spoon").id).xpos
+        error = np.subtract(goal, current_pose)
+
+        while np.linalg.norm(error) >= self.tol:
+            mujoco.mj_jac(
+                self._model, sgd_data, self.jacp,
+                self.jacr, goal, self._model.body("spoon").id
+            )
+            grad = self.alpha * self.jacp.T @ error
+            if grad.shape[0] < sgd_data.qpos.shape[0]:
+                padded_grad = np.zeros_like(sgd_data.qpos)
+                padded_grad[:grad.shape[0]] = grad
+                grad = padded_grad
+
+            sgd_data.qpos[:] += self.step_size * grad
+            self.check_joint_limits(sgd_data.qpos)
+            mujoco.mj_forward(self._model, sgd_data)
+            error = np.subtract(goal, sgd_data.body(self._model.body("spoon").id).xpos)
+
+        return sgd_data.qpos[:self._num_joints].copy()
+
     def get_camera_names(self) -> list:
         """Get list of available camera names."""
         camera_names = []

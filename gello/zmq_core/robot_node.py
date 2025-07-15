@@ -135,3 +135,15 @@ class ZMQClientRobot(Robot):
         self._socket.send(send_message)
         result = pickle.loads(self._socket.recv())
         return result
+
+    def iterate_sgd(self, goal) -> None:
+        """Iterate the SGD for the robot.
+
+        Args:
+            **kwargs: Additional arguments for the iteration.
+        """
+        request = {"method": "iterate_sgd", "args": goal}
+        send_message = pickle.dumps(request)
+        self._socket.send(send_message)
+        result = pickle.loads(self._socket.recv())
+        return result
