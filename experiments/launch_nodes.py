@@ -37,9 +37,9 @@ def launch_robot_server(args: Args):
         )
         # xml = MENAGERIE_ROOT / "franka_emika_panda" / "panda.xml"
         # xml = Path("/home/simulation/Granular_material_benchmark/envs/franka_scooping_env/scooping.xml")
-        xml = "/home/sebastiana/Granular_material_benchmark/envs/franka_scooping_env/scooping.xml"
+        # xml = "/home/sebastiana/Granular_material_benchmark/envs/franka_scooping_env/scooping.xml"
         # xml = Path("/home/zhaodong/code/gello_software/granular_envs/panda.xml")
-        # xml = r"C:\Users\nikhi\Desktop\git\Granular_material_benchmark\envs\franka_sweeping_env\sweeping_randomized.xml"
+        xml = r"C:\Users\nikhi\Desktop\git\Granular_material_benchmark\envs\franka_scooping_env\scooping.xml"
         gripper_xml = None
         server = MujocoRobotServer(
             xml_path=xml, gripper_xml_path=gripper_xml, port=port, host=args.hostname

@@ -232,15 +232,38 @@ class MujocoRobotServer:
         jacobian = np.vstack([self.jac_pos, self.jac_rot])
         return jacobian[:, :8]
 
+    def _quat_conjugate(self, q):
+        return np.array([q[0], -q[1], -q[2], -q[3]])
+
+    def _quat_multiply(self, q1, q2):
+        w1, x1, y1, z1 = q1[0], q1[1], q1[2], q1[3]
+        w2, x2, y2, z2 = q2[0], q2[1], q2[2], q2[3]
+        
+        return np.array([
+            w1*w2 - x1*x2 - y1*y2 - z1*z2,
+            w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2,
+            w1*z2 + x1*y2 - y1*x2 + z1*w2
+        ])
+    
+    def _calculate_pose_error(self, pos_goal, current_pos, quat_goal, current_quat):
+        pos_error = np.subtract(pos_goal, current_pos)
+
+        axis_angle_error = np.zeros(3)
+        quat_error = self._quat_multiply(quat_goal, self._quat_conjugate(current_quat))
+        mujoco.mju_quat2Vel(axis_angle_error, quat_error, 1)
+
+        return pos_error, axis_angle_error
+
     def check_joint_limits(self, q):
         for i in range(len(q)):
             q[i] = max(self._model.jnt_range[i][0], 
                        min(q[i], self._model.jnt_range[i][1]))
 
     def iterate_sgd(self, goal):
-        self.step_size = 0.5
         self.tol = 0.1
-        self.alpha = 0.5
+        self.alpha = 0.1
+        self.beta = 0.2
         self.jacp = np.zeros((3, self._model.nv))
         self.jacr = np.zeros((3, self._model.nv))
 
@@ -250,25 +273,43 @@ class MujocoRobotServer:
         sgd_data = mujoco.MjData(self._model)
         sgd_data.qpos[:] = 0.0
 
-        mujoco.mj_forward(self._model, sgd_data)
-        current_pose = sgd_data.body(self._model.body("spoon").id).xpos
-        error = np.subtract(goal, current_pose)
+        pos_goal = goal[:3]
+        quat_goal = goal[3:]
 
-        while np.linalg.norm(error) >= self.tol:
+        mujoco.mj_forward(self._model, sgd_data)
+        current_pos = sgd_data.body(self._model.body("spoon").id).xpos
+        current_quat = sgd_data.body(self._model.body("spoon").id).xquat
+
+        pos_error, axis_angle_error = self._calculate_pose_error(
+            pos_goal, current_pos, quat_goal, current_quat
+        )
+
+        while np.linalg.norm(np.concatenate((pos_error, axis_angle_error))) >= self.tol:
             mujoco.mj_jac(
                 self._model, sgd_data, self.jacp,
-                self.jacr, goal, self._model.body("spoon").id
+                self.jacr, current_pos, self._model.body("spoon").id
             )
-            grad = self.alpha * self.jacp.T @ error
-            if grad.shape[0] < sgd_data.qpos.shape[0]:
+            pos_grad = self.jacp.T @ pos_error
+            axis_angle_grad = self.jacr.T @ axis_angle_error
+            if pos_grad.shape[0] < sgd_data.qpos.shape[0]:
                 padded_grad = np.zeros_like(sgd_data.qpos)
-                padded_grad[:grad.shape[0]] = grad
-                grad = padded_grad
+                padded_grad[:pos_grad.shape[0]] = pos_grad
+                pos_grad = padded_grad
+            if axis_angle_grad.shape[0] < sgd_data.qpos.shape[0]:
+                padded_grad = np.zeros_like(sgd_data.qpos)
+                padded_grad[:axis_angle_grad.shape[0]] = axis_angle_grad
+                axis_angle_grad = padded_grad
 
-            sgd_data.qpos[:] += self.step_size * grad
+            sgd_data.qpos[:] += self.alpha * pos_grad + self.beta * axis_angle_grad
             self.check_joint_limits(sgd_data.qpos)
             mujoco.mj_forward(self._model, sgd_data)
-            error = np.subtract(goal, sgd_data.body(self._model.body("spoon").id).xpos)
+
+            current_pos = sgd_data.body(self._model.body("spoon").id).xpos
+            current_quat = sgd_data.body(self._model.body("spoon").id).xquat
+            pos_error, axis_angle_error = self._calculate_pose_error(
+                pos_goal, current_pos, quat_goal, current_quat
+            )
+            print(f"SGD Error: {np.linalg.norm(np.concatenate((pos_error, axis_angle_error)))}")
 
         return sgd_data.qpos[:self._num_joints].copy()
 
