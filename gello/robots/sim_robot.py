@@ -114,8 +114,8 @@ class ZMQRobotServer:
                     result = self._robot.get_observations()
                 elif method == "get_jacobian":
                     result = self._robot.get_jacobian()
-                elif method == "iterate_sgd":
-                    result = self._robot.iterate_sgd(args)
+                elif method == "iterate_ik":
+                    result = self._robot.iterate_ik(args)
                 elif method == "get_camera_names":
                     result = self._robot.get_camera_names()
                 elif method == "render_camera":
@@ -256,29 +256,30 @@ class MujocoRobotServer:
         return pos_error, axis_angle_error
 
     def check_joint_limits(self, q):
-        for i in range(len(q)):
-            q[i] = max(self._model.jnt_range[i][0], 
-                       min(q[i], self._model.jnt_range[i][1]))
+        for i in range(self._num_joints):
+            lower, upper = self._model.jnt_range[i]
+            original = q[i]
+            q[i] = np.clip(q[i], lower, upper)
+            if q[i] != original:
+                print(f"CLAMPING joint {i}: {original:.3f} -> {q[i]:.3f}")
 
-    def iterate_sgd(self, goal):
-        self.tol = 0.1
-        self.alpha = 0.1
-        self.beta = 0.2
+    def iterate_ik(self, goal, mode="sgd"):
+        self.tol = 0.3
+        self.step_size = 0.05
         self.jacp = np.zeros((3, self._model.nv))
         self.jacr = np.zeros((3, self._model.nv))
 
         self._data.qpos[:self._num_joints] = self.get_observations()["joint_positions"]
-        # self._data.qpos[self._num_joints:] = 0
 
-        sgd_data = mujoco.MjData(self._model)
-        sgd_data.qpos[:] = 0.0
+        ik_data = mujoco.MjData(self._model)
+        ik_data.qpos[:] = self._data.qpos[:]
 
         pos_goal = goal[:3]
         quat_goal = goal[3:]
 
-        mujoco.mj_forward(self._model, sgd_data)
-        current_pos = sgd_data.body(self._model.body("spoon").id).xpos
-        current_quat = sgd_data.body(self._model.body("spoon").id).xquat
+        mujoco.mj_forward(self._model, ik_data)
+        current_pos = ik_data.body(self._model.body("hand").id).xpos
+        current_quat = ik_data.body(self._model.body("hand").id).xquat
 
         pos_error, axis_angle_error = self._calculate_pose_error(
             pos_goal, current_pos, quat_goal, current_quat
@@ -286,32 +287,45 @@ class MujocoRobotServer:
 
         while np.linalg.norm(np.concatenate((pos_error, axis_angle_error))) >= self.tol:
             mujoco.mj_jac(
-                self._model, sgd_data, self.jacp,
-                self.jacr, current_pos, self._model.body("spoon").id
+                self._model, ik_data, self.jacp,
+                self.jacr, current_pos, self._model.body("hand").id
             )
-            pos_grad = self.jacp.T @ pos_error
-            axis_angle_grad = self.jacr.T @ axis_angle_error
-            if pos_grad.shape[0] < sgd_data.qpos.shape[0]:
-                padded_grad = np.zeros_like(sgd_data.qpos)
-                padded_grad[:pos_grad.shape[0]] = pos_grad
-                pos_grad = padded_grad
-            if axis_angle_grad.shape[0] < sgd_data.qpos.shape[0]:
-                padded_grad = np.zeros_like(sgd_data.qpos)
-                padded_grad[:axis_angle_grad.shape[0]] = axis_angle_grad
-                axis_angle_grad = padded_grad
+            if mode == "sgd":
+                pos_grad = self.jacp.T @ pos_error
+                axis_angle_grad = self.jacr.T @ axis_angle_error
+                if pos_grad.shape[0] < ik_data.qpos.shape[0]:
+                    padded_grad = np.zeros_like(ik_data.qpos)
+                    padded_grad[:pos_grad.shape[0]] = pos_grad
+                    pos_grad = padded_grad
+                if axis_angle_grad.shape[0] < ik_data.qpos.shape[0]:
+                    padded_grad = np.zeros_like(ik_data.qpos)
+                    padded_grad[:axis_angle_grad.shape[0]] = axis_angle_grad
+                    axis_angle_grad = padded_grad
 
-            sgd_data.qpos[:] += self.alpha * pos_grad + self.beta * axis_angle_grad
-            self.check_joint_limits(sgd_data.qpos)
-            mujoco.mj_forward(self._model, sgd_data)
+                ik_data.qpos[:] += self.step_size * (pos_grad + axis_angle_grad)
 
-            current_pos = sgd_data.body(self._model.body("spoon").id).xpos
-            current_quat = sgd_data.body(self._model.body("spoon").id).xquat
+            elif mode == "pinv":
+                jacpose = np.vstack([self.jacp, self.jacr])
+                pose_error = np.concatenate([pos_error, axis_angle_error])
+                dqpos = np.linalg.pinv(jacpose) @ pose_error
+                if dqpos.shape[0] < ik_data.qpos.shape[0]:
+                    padded_dqpos = np.zeros_like(ik_data.qpos)
+                    padded_dqpos[:dqpos.shape[0]] = dqpos
+                    dqpos = padded_dqpos
+                
+                ik_data.qpos[:] += self.step_size * dqpos
+
+            self.check_joint_limits(ik_data.qpos)
+            mujoco.mj_forward(self._model, ik_data)
+
+            current_pos = ik_data.body(self._model.body("hand").id).xpos
+            current_quat = ik_data.body(self._model.body("hand").id).xquat
             pos_error, axis_angle_error = self._calculate_pose_error(
                 pos_goal, current_pos, quat_goal, current_quat
             )
-            print(f"SGD Error: {np.linalg.norm(np.concatenate((pos_error, axis_angle_error)))}")
+            print(f"IK Error: {np.linalg.norm(np.concatenate((pos_error, axis_angle_error)))}")
 
-        return sgd_data.qpos[:self._num_joints].copy()
+        return ik_data.qpos[:self._num_joints].copy()
 
     def get_camera_names(self) -> list:
         """Get list of available camera names."""

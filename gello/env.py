@@ -87,13 +87,13 @@ class RobotEnv:
         """
         return self._robot.get_jacobian()
 
-    def iterate_sgd(self, goal: list) -> None:
-        """Iterate the SGD algorithm to reach the goal.
+    def iterate_ik(self, goal: list) -> None:
+        """Iterate the IK algorithm to reach the goal.
 
         Args:
             goal: the goal position to reach.
         """
-        return self._robot.iterate_sgd(goal)
+        return self._robot.iterate_ik(goal)
 
 def main() -> None:
     pass
