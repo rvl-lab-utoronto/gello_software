@@ -2,6 +2,7 @@ import pickle
 import threading
 import time
 from typing import Any, Dict, Optional
+import numpy as np
 
 import mujoco
 import mujoco.viewer
@@ -116,6 +117,8 @@ class ZMQRobotServer:
                     result = self._robot.get_jacobian()
                 elif method == "iterate_ik":
                     result = self._robot.iterate_ik(args)
+                elif method == "solve_ik_analytical":
+                    result = self._robot.solve_ik_analytical(args)
                 elif method == "get_camera_names":
                     result = self._robot.get_camera_names()
                 elif method == "render_camera":
@@ -262,6 +265,172 @@ class MujocoRobotServer:
             q[i] = np.clip(q[i], lower, upper)
             if q[i] != original:
                 print(f"CLAMPING joint {i}: {original:.3f} -> {q[i]:.3f}")
+
+    def compute_geometric_constants(self, model, data):
+        def get_pos(model, data, name):
+            return data.body(name).xpos
+
+        pos = {link: get_pos(model, data, link) for link in [
+            "link1", "link2", "link3", "link4",
+            "link5", "link6", "link7", "hand"
+        ]}
+
+        d1 = pos["link1"][2]
+        d3 = pos["link3"][2] - pos["link2"][2]
+        d5 = pos["link5"][2] - pos["link4"][2]
+        d7e = np.linalg.norm(pos["hand"] - pos["link7"])
+
+        a4 = pos["link4"][0] - pos["link3"][0]
+        a7 = pos["link7"][0] - pos["link6"][0]
+
+        vec_24 = pos["link4"] - pos["link2"]
+        vec_46 = pos["link6"] - pos["link4"]
+
+        L24 = np.linalg.norm(vec_24)
+        L46 = np.linalg.norm(vec_46)
+        LL24 = np.linalg.norm(vec_24[[0, 1]])
+        LL46 = np.linalg.norm(vec_46[[0, 1]])
+
+        def angle_between(v1, v2):
+            v1 = v1 / np.linalg.norm(v1)
+            v2 = v2 / np.linalg.norm(v2)
+            return np.arccos(np.clip(np.dot(v1, v2), -1.0, 1.0))
+
+        thetaH46 = angle_between(pos["hand"] - pos["link6"], -vec_46)
+        theta342 = angle_between(pos["link3"] - pos["link4"],
+                                pos["link2"] - pos["link4"])
+        theta46H = angle_between(vec_46, pos["hand"] - pos["link6"])
+
+        return {
+            "d1": d1, "d3": d3, "d5": d5, "d7e": d7e,
+            "a4": a4, "a7": a7,
+            "L24": L24, "L46": L46,
+            "LL24": LL24, "LL46": LL46,
+            "thetaH46": thetaH46,
+            "theta342": theta342,
+            "theta46H": theta46H,
+        }
+    
+    def quat_to_mat(self, quat):
+        w, x, y, z = quat
+        R = np.array([
+            [1 - 2*(y**2 + z**2),     2*(x*y - z*w),     2*(x*z + y*w)],
+            [    2*(x*y + z*w), 1 - 2*(x**2 + z**2),     2*(y*z - x*w)],
+            [    2*(x*z - y*w),     2*(y*z + x*w), 1 - 2*(x**2 + y**2)]
+        ])
+        return R
+
+    def solve_ik_analytical(self, goal):
+        def norm(v):
+            return v / np.linalg.norm(v)
+
+        q = np.zeros(7)
+
+        d1 = 0.3330
+        d3 = 0.3160
+        d5 = 0.3840
+        d7e = 0.2104
+        a4 = 0.0825
+        a7 = 0.0880
+
+        LL24 = 0.10666225
+        LL46 = 0.15426225
+        L24 = 0.326591870689
+        L46 = 0.392762332715
+
+        thetaH46 = 1.35916951803
+        theta342 = 1.31542071191
+        theta46H = 0.211626808766
+
+        q7 = 0.0
+
+        pos_goal = goal[:3]
+        quat_goal = goal[3:]
+        rot_goal = self.quat_to_mat(quat_goal)
+
+        t_ee_0 = np.eye(4)
+        t_ee_0[:3, :3] = rot_goal
+        t_ee_0[:3, 3] = pos_goal
+
+        z_ee = t_ee_0[:3, 2]
+        p_ee = t_ee_0[:3, 3]
+        p7 = p_ee - d7e * z_ee
+
+        x_EE_6 = np.array([np.cos(q7 - np.pi/4), -np.sin(q7 - np.pi/4), 0])
+        x6 = norm(rot_goal @ x_EE_6)
+        p6 = p7 - a7 * x6
+
+        p2 = np.array([0, 0, d1])
+        V26 = p6 - p2
+        LL26 = np.dot(V26, V26)
+        L26 = np.sqrt(LL26)
+
+        theta246 = np.arccos((LL24 + LL46 - LL26) / (2 * L24 * L46))
+        q[3] = theta246 + thetaH46 + theta342 - 2 * np.pi
+
+        theta462 = np.arccos((LL26 + LL46 - LL24) / (2 * L26 * L46))
+        theta26H = theta46H + theta462
+        D26 = -L26 * np.cos(theta26H)
+
+        Z6 = np.cross(z_ee, x6)
+        Y6 = np.cross(Z6, x6)
+        R6 = np.column_stack((x6, norm(Y6), norm(Z6)))
+        V_6_62 = R6.T @ -V26
+
+        phi6 = np.arctan2(V_6_62[1], V_6_62[0])
+        theta6 = np.arcsin(D26 / np.linalg.norm(V_6_62[:2]))
+
+        q[5] = theta6 - phi6
+        q[5] = (q[5] + np.pi) % (2 * np.pi) - np.pi  # wrap to [-pi, pi]
+
+        thetaP26 = 3 * np.pi / 2 - theta462 - theta246 - theta342
+        thetaP = np.pi - thetaP26 - theta26H
+        LP6 = L26 * np.sin(thetaP26) / np.sin(thetaP)
+
+        z5 = R6 @ np.array([np.sin(q[5]), np.cos(q[5]), 0])
+        V2P = p6 - LP6 * z5 - p2
+
+        L2P = np.linalg.norm(V2P)
+        if abs(V2P[2] / L2P) > 0.999:
+            q[0] = 0
+            q[1] = 0
+        else:
+            q[0] = np.arctan2(V2P[1], V2P[0])
+            q[1] = np.arccos(V2P[2] / L2P)
+
+        z3 = V2P / L2P
+        y3 = -np.cross(V26, V2P)
+        y3 = norm(y3)
+        x3 = np.cross(y3, z3)
+
+        R1 = np.array([
+            [np.cos(q[0]), -np.sin(q[0]), 0],
+            [np.sin(q[0]), np.cos(q[0]), 0],
+            [0, 0, 1]
+        ])
+        R1_2 = np.array([
+            [np.cos(q[1]), -np.sin(q[1]), 0],
+            [0, 0, 1],
+            [-np.sin(q[1]), -np.cos(q[1]), 0]
+        ])
+        R2 = R1 @ R1_2
+        x2_3 = R2.T @ x3
+        q[2] = np.arctan2(x2_3[2], x2_3[0])
+
+        VH4 = p2 + d3 * z3 + a4 * x3 - p6 + d5 * z5
+        R5_6 = np.array([
+            [np.cos(q[5]), -np.sin(q[5]), 0],
+            [0, 0, -1],
+            [np.sin(q[5]), np.cos(q[5]), 0]
+        ])
+        R5 = R6 @ R5_6.T
+        V_5_H4 = R5.T @ VH4
+        q[4] = -np.arctan2(V_5_H4[1], V_5_H4[0])
+
+        q[6] = q7
+        q = np.concatenate([q, np.zeros(1)])
+        return q
+
 
     def iterate_ik(self, goal, mode="sgd"):
         self.tol = 0.3

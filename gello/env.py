@@ -94,6 +94,14 @@ class RobotEnv:
             goal: the goal position to reach.
         """
         return self._robot.iterate_ik(goal)
+    
+    def solve_ik_analytical(self, goal: list) -> None:
+        """Iterate the IK algorithm to reach the goal.
+
+        Args:
+            goal: the goal position to reach.
+        """
+        return self._robot.solve_ik_analytical(goal)
 
 def main() -> None:
     pass

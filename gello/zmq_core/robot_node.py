@@ -147,3 +147,15 @@ class ZMQClientRobot(Robot):
         self._socket.send(send_message)
         result = pickle.loads(self._socket.recv())
         return result
+    
+    def solve_ik_analytical(self, goal) -> None:
+        """Iterate the IK for the robot.
+
+        Args:
+            **kwargs: Additional arguments for the iteration.
+        """
+        request = {"method": "solve_ik_analytical", "args": goal}
+        send_message = pickle.dumps(request)
+        self._socket.send(send_message)
+        result = pickle.loads(self._socket.recv())
+        return result
