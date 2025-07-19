@@ -324,23 +324,25 @@ class MujocoRobotServer:
         def norm(v):
             return v / np.linalg.norm(v)
 
-        q = np.zeros(7)
+        q = self.get_observations()["joint_positions"]
 
-        d1 = 0.3330
-        d3 = 0.3160
-        d5 = 0.3840
-        d7e = 0.2104
-        a4 = 0.0825
-        a7 = 0.0880
+        geom = self.compute_geometric_constants(self._model, self._data)
 
-        LL24 = 0.10666225
-        LL46 = 0.15426225
-        L24 = 0.326591870689
-        L46 = 0.392762332715
+        d1 = geom["d1"]     #0.3330
+        d3 = geom["d3"]     #0.3160
+        d5 = geom["d5"]     #0.3840
+        d7e = geom["d7e"]    #0.2104
+        a4 = geom["a4"]     #0.0825
+        a7 = geom["a7"]     #0.0880
 
-        thetaH46 = 1.35916951803
-        theta342 = 1.31542071191
-        theta46H = 0.211626808766
+        LL24 = geom["LL24"]   #0.10666225
+        LL46 = geom["LL46"]   #0.15426225
+        L24 =  geom["L24"]   #0.326591870689
+        L46 = geom["L46"]    #0.392762332715
+
+        thetaH46 = geom["thetaH46"]   #1.35916951803
+        theta342 = geom["theta342"]   #1.31542071191
+        theta46H = geom["theta46H"]   #0.211626808766
 
         q7 = 0.0
 
@@ -428,7 +430,7 @@ class MujocoRobotServer:
         q[4] = -np.arctan2(V_5_H4[1], V_5_H4[0])
 
         q[6] = q7
-        q = np.concatenate([q, np.zeros(1)])
+        q[7] = 0
         return q
 
 
