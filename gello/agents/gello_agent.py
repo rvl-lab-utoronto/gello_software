@@ -117,12 +117,12 @@ PORT_CONFIG_MAP: Dict[str, DynamixelRobotConfig] = {
     "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTA2U2FX-if00-port0": DynamixelRobotConfig(
         joint_ids=(0,1,2,3,4,5,6),
         joint_offsets=(
-            2*np.pi/2, 2*np.pi/2, 0*np.pi/2, 3*np.pi/2, 0*np.pi/2, 3*np.pi/2, 2*np.pi/2
+            3*np.pi/2, 2*np.pi/2, 3*np.pi/2, 3*np.pi/2, 3*np.pi/2, 1*np.pi/2, 0*np.pi/2
         #   0*np.pi/2, 0*np.pi/2, 0*np.pi/2, -1*np.pi/2, 0*np.pi/2, 1*np.pi/2, -1*np.pi/2
             # 0*np.pi/2, 2*np.pi/2, 4*np.pi/2, 3*np.pi/2, 1*np.pi/2, 2*np.pi/2, 4*np.pi/2 
         ),
-        joint_signs=(1, -1, 1, 1 ,1, -1 ,1),
-        gripper_config=(7, 199.1359375, 157.3359375),
+        joint_signs=(1, 1, 1, 1 ,1, 1 ,1),
+        gripper_config=(7, 18.5, -23.3),
     )
 }
     

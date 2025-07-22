@@ -1,6 +1,8 @@
+from pathlib import Path
 import time
 from typing import Any, Dict, Optional
 
+import h5py
 import numpy as np
 
 from gello.cameras.camera import CameraDriver
@@ -80,6 +82,36 @@ class RobotEnv:
         observations["gripper_position"] = robot_obs["gripper_position"]
         observations["flattened_states"] = robot_obs["flattened_states"]
         return observations
+
+    def save_single_timestep(self, save_path: Path, dt, obs: Dict[str, Any], action: np.ndarray):
+        """Save a single timestep's actions and observations (no cameras) into an HDF5 file (one file per episode)."""
+        # path to the HDF5 file in this episode folder
+        h5_path = save_path / "data.h5"
+
+        # open (or create) the HDF5 file in append mode
+        with h5py.File(h5_path, "a") as h5f:
+            # make a group for this frame
+            grp_name = dt.strftime("frame_%Y%m%d_%H%M%S_%f")
+            grp = h5f.create_group(grp_name)
+            grp.attrs["timestamp"] = dt.strftime("%Y%m%d_%H%M%S_%f")
+
+            # store observations under a subgroup
+            obs_grp = grp.create_group("observations")
+            for key, val in obs.items():
+                # flatten or leave as-is; here we assume val is array-like
+                if val.ndim == 0:
+                    obs_grp.attrs[key] = val
+                else:
+                    obs_grp.create_dataset(key, data=val, compression="gzip")
+
+            # store action
+            grp.create_dataset("action", data=action, compression="gzip")
+
+            # # store metadata as attributes
+            # meta = grp.create_group("metadata")
+            # meta.attrs["camera_names"] = np.array(self.camera_names, dtype="S")
+            # meta.attrs["camera_width"] = self.camera_width
+            # meta.attrs["camera_height"] = self.camera_height
 
 
 def main() -> None:
