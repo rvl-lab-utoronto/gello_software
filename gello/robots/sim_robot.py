@@ -12,6 +12,7 @@ from dm_control import mjcf
 import cv2
 import sys
 import os
+from pytictac import Timer
 
 from gello.robots.robot import Robot
 
@@ -341,6 +342,7 @@ class MujocoRobotServer:
 
     def serve(self) -> None:
         # start the zmq server
+        sim_hz = 1/100
         self._zmq_server_thread.start()
         with mujoco.viewer.launch_passive(self._model, self._data, show_left_ui=True, show_right_ui=False) as viewer:
             # Set the viewer to use a specific camera from your XML
@@ -423,22 +425,13 @@ class MujocoRobotServer:
                         continue
                     self._update_camera_window()
 
-                # # Example modification of a viewer option: toggle contact points every two seconds.
-                # with viewer.lock():
-                #     # TODO remove?
-                #     viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = int(
-                #         self._data.time % 2
-                #     )
-
-                # Pick up changes to the physics state, apply perturbations, update options from GUI.
                 viewer.sync()
 
-                # Rudimentary time keeping, will drift relative to wall clock.
-                time_until_next_step = self._model.opt.timestep - (
-                    time.time() - step_start
-                )
-                if time_until_next_step > 0:
-                    time.sleep(time_until_next_step)
+                # Measure step time and sleep if necessary
+                step_time = time.time() - step_start
+                print(f"Frequency: {1/step_time:.2f} Hz")
+                if step_time < sim_hz:
+                    time.sleep(sim_hz - step_time)
 
                 # Check if camera window was closed
                 if self._show_camera_window:
