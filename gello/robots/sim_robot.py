@@ -429,7 +429,7 @@ class MujocoRobotServer:
 
                 # Measure step time and sleep if necessary
                 step_time = time.time() - step_start
-                print(f"Frequency: {1/step_time:.2f} Hz")
+                # Sleep to maintain simulation frequency
                 if step_time < sim_hz:
                     time.sleep(sim_hz - step_time)
 
