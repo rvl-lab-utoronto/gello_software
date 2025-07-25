@@ -27,3 +27,5 @@ outputs/*
 # vim
 *.swp
 MUJOCO_LOG.TXT
+
+gello/agents/gello_agent.py
