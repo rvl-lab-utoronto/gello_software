@@ -154,7 +154,7 @@ class MujocoRobotServer:
         show_camera_window: bool = False,
         camera_window_name: str = "default_camera",
         camera_window_size: tuple = (640, 480),
-        task: str = None,
+        task: str = "scooping",
         randomize_list: list = None,
         background_images_dir: str = None,
     ):
@@ -203,7 +203,6 @@ class MujocoRobotServer:
         self._renderer = mujoco.Renderer(self._model, height=128, width=128)
         self._depth_renderer = mujoco.Renderer(self._model, height=128, width=128); self._depth_renderer.enable_depth_rendering()
         self._sgmnt_renderer = mujoco.Renderer(self._model, height=128, width=128); self._sgmnt_renderer.enable_segmentation_rendering()
-
 
         # Optional camera renderer
         self._camera_renderer = None

@@ -53,11 +53,12 @@ def launch_robot_server(args: Args):
         # xml = MENAGERIE_ROOT / "franka_emika_panda" / "panda.xml"
         REPO_ROOT: Path = Path(__file__).parent.parent.parent.parent
         if args.env == "scooping":
-            original_xml = f"{str(REPO_ROOT)}/envs/franka_scooping_env/scooping.xml"
-            xml = f"{str(REPO_ROOT)}/envs/franka_scooping_env/scooping_randomized.xml"
-            randomize_func = import_function_from_file(f"{str(REPO_ROOT)}/envs/franka_scooping_env/randomize.py", "randomize_scene")
-            randomize_func(original_xml, xml)
-            randomize_list = [randomize_func, original_xml, xml]
+            xml = f"{str(REPO_ROOT)}/envs/franka_scooping_env/scooping.xml"
+            # original_xml = f"{str(REPO_ROOT)}/envs/franka_scooping_env/scooping.xml"
+            # xml = f"{str(REPO_ROOT)}/envs/franka_scooping_env/scooping_randomized.xml"
+            # randomize_func = import_function_from_file(f"{str(REPO_ROOT)}/envs/franka_scooping_env/randomize.py", "randomize_scene")
+            # randomize_func(original_xml, xml)
+            # randomize_list = [randomize_func, original_xml, xml]
         elif args.env == "sweeping":
             NotImplementedError()
         elif args.env == "pouring":
@@ -75,7 +76,7 @@ def launch_robot_server(args: Args):
             camera_window_name="wrist_cam",
             camera_window_size=(640, 640),
             task=args.env,
-            randomize_list=randomize_list,
+            # randomize_list=randomize_list,
         )
         server.serve()
     elif args.robot == "sim_xarm":
