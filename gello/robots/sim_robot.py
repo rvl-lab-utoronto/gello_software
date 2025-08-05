@@ -341,7 +341,7 @@ class MujocoRobotServer:
 
     def serve(self) -> None:
         # start the zmq server
-        sim_hz = 1/100
+        sim_hz = 1/90
         self._zmq_server_thread.start()
         with mujoco.viewer.launch_passive(self._model, self._data, show_left_ui=True, show_right_ui=False) as viewer:
             # Set the viewer to use a specific camera from your XML
@@ -490,7 +490,10 @@ class MujocoRobotServer:
             else:
                 print("No randomization function provided, using original XML")
 
+            self._camera_renderer.close()
             self._initialize_simulation()
+            self._camera_renderer = mujoco.Renderer(self._model, height=640, width=640)
+            mujoco.mj_forward(self._model, self._data)
 
             self._viewer_ptrs_update_requested = True
             print("Simulation reset requested")
