@@ -27,7 +27,7 @@ class Args:
     robot_port: int = 6001
     hostname: str = "127.0.0.1"
     robot_ip: str = "127.0.0.1"
-    env: str = "scooping"
+    env: str = "sweeping"
 
 
 def launch_robot_server(args: Args):
@@ -60,7 +60,11 @@ def launch_robot_server(args: Args):
             # randomize_func(original_xml, xml)
             # randomize_list = [randomize_func, original_xml, xml]
         elif args.env == "sweeping":
-            NotImplementedError()
+            original_xml = f"{str(REPO_ROOT)}/envs/franka_sweeping_env/sweeping.xml"
+            xml = f"{str(REPO_ROOT)}/envs/franka_sweeping_env/sweeping_randomized.xml"
+            randomize_func = import_function_from_file(f"{str(REPO_ROOT)}/envs/franka_sweeping_env/randomize.py", "randomize_scene")
+            randomize_func(original_xml, xml)
+            randomize_list = [randomize_func, original_xml, xml]
         elif args.env == "pouring":
             NotImplementedError()
         else:
@@ -76,7 +80,7 @@ def launch_robot_server(args: Args):
             camera_window_name="wrist_cam",
             camera_window_size=(640, 640),
             task=args.env,
-            # randomize_list=randomize_list,
+            randomize_list=randomize_list,
         )
         server.serve()
     elif args.robot == "sim_xarm":

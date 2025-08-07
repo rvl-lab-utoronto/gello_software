@@ -154,7 +154,7 @@ class MujocoRobotServer:
         show_camera_window: bool = False,
         camera_window_name: str = "default_camera",
         camera_window_size: tuple = (640, 480),
-        task: str = "scooping",
+        task: str = "sweeping", 
         randomize_list: list = None,
         background_images_dir: str = None,
     ):
