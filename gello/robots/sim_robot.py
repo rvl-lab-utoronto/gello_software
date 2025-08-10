@@ -194,6 +194,18 @@ class MujocoRobotServer:
         self._model = mujoco.MjModel.from_xml_path(str(self.xml_path))
         self._data = mujoco.MjData(self._model)
 
+        # Reset to the keyframe
+        try:
+            key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, "robot_home")
+            if key_id >= 0:
+                mujoco.mj_resetDataKeyframe(self._model, self._data, key_id)
+            else:
+                # Keyframe doesn't exist, use default reset
+                mujoco.mj_resetData(self._model, self._data)
+        except Exception:
+            # Fallback to default reset if anything goes wrong
+            mujoco.mj_resetData(self._model, self._data)
+
         # Joint state
         self._num_joints = self._model.nu
         self._joint_state = np.zeros(self._num_joints, dtype=np.float64)
@@ -203,7 +215,6 @@ class MujocoRobotServer:
         self._renderer = mujoco.Renderer(self._model, height=128, width=128)
         self._depth_renderer = mujoco.Renderer(self._model, height=128, width=128); self._depth_renderer.enable_depth_rendering()
         self._sgmnt_renderer = mujoco.Renderer(self._model, height=128, width=128); self._sgmnt_renderer.enable_segmentation_rendering()
-
 
         # Optional camera renderer
         self._camera_renderer = None
@@ -342,7 +353,7 @@ class MujocoRobotServer:
 
     def serve(self) -> None:
         # start the zmq server
-        sim_hz = 1/100
+        sim_hz = 1/90
         self._zmq_server_thread.start()
         with mujoco.viewer.launch_passive(self._model, self._data, show_left_ui=True, show_right_ui=False) as viewer:
             # Set the viewer to use a specific camera from your XML
@@ -491,7 +502,10 @@ class MujocoRobotServer:
             else:
                 print("No randomization function provided, using original XML")
 
+            # self._camera_renderer.close()
             self._initialize_simulation()
+            # self._camera_renderer = mujoco.Renderer(self._model, height=640, width=640)
+            mujoco.mj_forward(self._model, self._data)
 
             self._viewer_ptrs_update_requested = True
             print("Simulation reset requested")
