@@ -76,6 +76,11 @@ def launch_robot_server(args: Args):
             randomize_func = import_function_from_file(f"{str(REPO_ROOT)}/envs/franka_pouring_large_container_env/randomize.py", "randomize_scene")
             randomize_func(original_xml, xml)
             randomize_list = [randomize_func, original_xml, xml]
+        elif args.env == "picking":
+            original_xml = f"{str(REPO_ROOT)}/envs/franka_table_cube/mjx_cube_camera_table.xml"
+            xml = f"{str(REPO_ROOT)}/envs/franka_table_cube/mjx_cube_camera_table.xml"
+            randomize_list = None # No randomization for this env for now
+            print("Warning: No randomization for picking env for now")
         else:
             NotImplementedError()
         # xml = Path("/home/zhaodong/code/gello_software/granular_envs/panda.xml")
